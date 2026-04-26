@@ -56,27 +56,41 @@ No MCP tools needed — read diff and code.
 | `assets-get-data` | Get asset/prefab data |
 | `console-get-logs` | Get Unity Console logs |
 
-### Layer 4: PlayMode Automation
+### Layer 4: PlayMode Automation (三层子流程)
+
+Layer 4 分为三个子流程，**输入模拟（4B）是交互验证的核心**：
+
+#### 4A: PlayMode 控制
 | Tool | Purpose |
 |------|---------|
 | `editor-application-set-state` | Enter/exit PlayMode |
+
+#### 4B: 输入模拟（核心）
+**交互验证必须执行此层，模拟人类操作：**
+
+| Tool | Purpose | Example |
+|------|---------|---------|
+| `simulate-click-ui` | Click UI elements | Button, menu, toggle |
+| `simulate-click-world` | Click world-space objects | Match3 grid, game objects |
+| `simulate-drag-world` | Drag operation | **Match3 sliding elimination** |
+| `simulate-key-press` | Keyboard input | ESC, Space, shortcuts |
+| `record-start/stop` | Record input sequence | Manual bug reproduction |
+| `replay-input` | Replay recorded input | Deterministic reproduction |
+
+#### 4C: 证据收集
+| Tool | Purpose |
+|------|---------|
 | `screenshot-game-view` | Capture game screenshots |
 | `reflection-method-call` | Call any C# method at runtime |
 | `reflection-method-find` | Find methods to call |
+| `console-get-logs` | Get runtime logs |
 
-## Custom Tools (Input Simulation)
+**完整验证流程示例（三消滑动）：**
+```
+[4A] Enter PlayMode → [4B] simulate-drag-world → [4C] screenshot + reflection-method-call → [4A] Exit PlayMode
+```
 
-Unity-MCP doesn't have built-in input simulation. Add these custom tools:
-
-| Tool | Purpose |
-|------|---------|
-| `simulate-click-world` | Click world-space objects (colliders) |
-| `simulate-click-ui` | Click UI elements (EventSystem) |
-| `simulate-key-press` | Press keyboard key |
-| `record-start/stop` | Record input sequence |
-| `replay-input` | Replay recorded input |
-
-See `references/custom-tools-input.md` for implementation code.
+**See [EXAMPLES.md](EXAMPLES.md) for detailed examples.**
 
 ## Configuration
 
