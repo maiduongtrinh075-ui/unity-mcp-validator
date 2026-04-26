@@ -24,33 +24,17 @@ Instead of ad-hoc "run some tests" behavior, this skill provides systematic vali
 
 ## Installation
 
-### 1. Install Unity-MCP Plugin
+**See [SETUP.md](SETUP.md) for complete setup instructions.**
 
-```bash
-npm install -g unity-mcp-cli
-unity-mcp-cli install-plugin ./YourUnityProject
-```
+### Quick Setup Checklist
 
-Or manually from [Unity-MCP GitHub](https://github.com/IvanMurzak/Unity-MCP).
-
-### 2. Configure MCP Server
-
-Add Unity-MCP to your Claude Code MCP configuration.
-
-### 3. Add Custom Input Tools (Optional)
-
-Copy code from `references/custom-tools-input.md` to:
-```
-YourUnityProject/Assets/Scripts/MCP/
-├── Tool_MouseInput.cs
-├── Tool_MouseUI.cs
-├── Tool_KeyboardInput.cs
-└── Tool_InputRecording.cs
-```
-
-### 4. Create Config File (Optional)
-
-Copy `validation-config.example.yaml` to your Unity project root as `validation-config.yaml`.
+| Step | Command |
+|------|---------|
+| 1. Install Unity-MCP plugin | `npm install -g unity-mcp-cli && unity-mcp-cli install-plugin ./YourProject` |
+| 2. Add custom input tools | Copy code from `references/custom-tools-input.md` |
+| 3. Configure MCP server | Add to Claude Code MCP config (see SETUP.md) |
+| 4. Test connection | Call `editor-application-get-state` |
+| 5. Create config (optional) | Copy `validation-config.example.yaml` |
 
 ## Skills Reference
 
@@ -154,7 +138,8 @@ Next action: [most useful Unity-MCP command]
 
 ## Troubleshooting
 
-See [references/troubleshooting.md](references/troubleshooting.md) for common issues.
+See [SETUP.md](SETUP.md) for setup issues.
+See [references/troubleshooting.md](references/troubleshooting.md) for runtime issues.
 
 ## Version
 

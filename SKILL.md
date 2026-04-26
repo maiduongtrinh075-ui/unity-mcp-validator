@@ -37,13 +37,15 @@ Follow this contract on every run:
 6. **No premature acceptance** — 必需的验证层未执行时，不要标记"可接受"
 
 ## Quick Start
-<!-- 快速开始 -->
 
-1. Read [references/route-matrix.md](references/route-matrix.md) and classify the change.
-2. Run the required validation layers for that class.
-3. If the issue is PlayMode-only or flaky, read [references/runtime-probes.md](references/runtime-probes.md) and gather runtime evidence.
-4. Report using [references/output-contract.md](references/output-contract.md).
-5. For full tool reference, see [references/tool-reference.md](references/tool-reference.md) — **77 个工具完整列表**。
+**For setup instructions, see [SETUP.md](SETUP.md).**
+
+1. Complete setup checklist in SETUP.md
+2. Run preflight checks below
+3. Read [references/route-matrix.md](references/route-matrix.md) and classify the change.
+4. Run the required validation layers for that class.
+5. If the issue is PlayMode-only or flaky, read [references/runtime-probes.md](references/runtime-probes.md) and gather runtime evidence.
+6. Report using [references/output-contract.md](references/output-contract.md).
 
 If the task spans multiple categories, validate against the **strictest** route, not the cheapest one.
 

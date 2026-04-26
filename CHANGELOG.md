@@ -12,16 +12,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `README.md` - GitHub entry documentation
 - `CHANGELOG.md` - Version history
 - `LICENSE` - MIT license
+- `SETUP.md` - Complete setup guide for users and agents
 - `validation-config.example.yaml` - Configuration template
 - `references/troubleshooting.md` - Troubleshooting guide
 - Preflight checks section in SKILL.md
 - Installation section with detailed steps
 - Blockers section in output-contract.md
+- MCP server configuration instructions
 
 ### Changed
 - Improved `agents/openai.yaml` with version info and capabilities
 - Added Mermaid decision flowchart to route-matrix.md
 - Fixed namespace typo in custom-tools-input.md
+- Quick Start now references SETUP.md
 
 ## [1.0.0] - 2025-12-01
 
