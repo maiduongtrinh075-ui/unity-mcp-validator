@@ -68,7 +68,12 @@ Before routing, answer these questions:
 | `Static` | 读diff，检查代码路径，审查不变量 | 无需 MCP | 最低 |
 | `EditMode` | 运行确定性测试或添加最小测试 | `tests-run` | 低 |
 | `Editor` | 编译、层级、预制体、检视面板、日志、序列化连线 | `script-execute`, `scene-*`, `gameobject-*`, `assets-*`, `console-get-logs` | 中 |
-| `PlayMode` | 进入播放模式、模拟输入、检查运行时状态、截图和日志 | `editor-application-*`, `screenshot-*`, `reflection-*`, `script-execute` | 高 |
+| `PlayMode` | Layer 4 包含三个子流程：<br>**4A**: 进入/退出 PlayMode<br>**4B**: 输入模拟（点击、滑动、拖拽、按键）<br>**4C**: 证据收集（截图、日志、状态探针） | **4A**: `editor-application-*`<br>**4B**: `simulate-*`, `record-*`, `replay-*`<br>**4C**: `screenshot-*`, `reflection-*`, `script-execute`, `console-get-logs` | 高 |
+
+**重要：** 输入/交互类验证必须包含 Layer 4B（输入模拟）。例如：
+- 三消游戏滑动消除 → 需要 `simulate-drag-world`
+- 按钮点击 → 需要 `simulate-click-ui`
+- 键盘快捷键 → 需要 `simulate-key-press`
 
 ## Routing Table
 <!-- 路由表：变更类型 → 必需层级 → Unity-MCP工具 -->
@@ -76,14 +81,14 @@ Before routing, answer these questions:
 | Change class | Common signals | Required layers | Unity-MCP tools focus |
 | --- | --- | --- | --- |
 | **Model / rules** 模型/规则 | model classes, business logic, scoring, calculation, rules | Static, EditMode | `tests-run` 确定性规则正确性，边界情况 |
-| **Controller / state machine** 控制器/状态机 | controller, state machine, phase changes, event flow | Static, EditMode, PlayMode | `tests-run`, `reflection-method-call` 检查状态转换，回调，解锁时机 |
-| **Input / interaction** 输入/交互 | click, drag, touch, selection, input handling | Static, Editor, PlayMode | `gameobject-find`, `reflection-method-call`, 自定义输入模拟工具 输入后端，碰撞体命中路径，相机，层蒙版 |
-| **Animation / input lock** 动画/输入锁 | tween, coroutine, async sequence, lock/unlock timing | Static, PlayMode | `editor-application-set-state`, `reflection-method-call`, `screenshot-*` 动画完成，锁释放，卡住阶段 |
+| **Controller / state machine** 控制器/状态机 | controller, state machine, phase changes, event flow | Static, EditMode, PlayMode (4A+4C) | `tests-run`, `reflection-method-call` 检查状态转换，回调，解锁时机 |
+| **Input / interaction** 输入/交互 | click, drag, touch, selection, input handling, **滑动消除** | Static, Editor, **PlayMode (4A+4B+4C)** | **[4B] `simulate-click-*`, `simulate-drag-*`, `replay-input`** + [4C] `screenshot-*`, `reflection-method-call` **三消滑动验证：simulate-drag-world → screenshot → reflection-method-call 检查分数** |
+| **Animation / input lock** 动画/输入锁 | tween, coroutine, async sequence, lock/unlock timing | Static, PlayMode (4A+4C) | `editor-application-set-state`, `reflection-method-call`, `screenshot-*` 动画完成，锁释放，卡住阶段 |
 | **Scene / prefab / inspector wiring** 场景/预制体/连线 | `Assets/Scenes`, `Assets/Prefabs`, serialized references | Static, Editor | `scene-get-data`, `gameobject-find`, `assets-get-data`, `gameobject-component-get` 缺失对象，缺失组件，空字段，错误引用 |
-| **UI / HUD** 界面 | buttons, labels, UI canvas, menus | Static, Editor, PlayMode | `gameobject-find`, `reflection-method-call`, `screenshot-game-view` UI对象存在性，引用，按钮点击路径，可见状态更新 |
-| **Project settings / package backend** 项目设置/包后端 | `ProjectSettings`, `Packages`, Input System, render pipeline | Static, Editor, PlayMode | `package-list`, `script-execute`, `tests-run` 编译，后端兼容性，运行时输入路径 |
-| **PlayMode-only runtime bug** 仅运行时bug | "works for a while", "after some actions", "freezes", "no response" | Static, Editor, PlayMode | `console-get-logs`, `reflection-method-call`, `screenshot-*`, `script-execute` 日志，运行时状态探针，卡住的锁/状态 |
-| **Pre-acceptance sweep** 预验收检查 | "ready to accept", "before merge", "full verification" | Static, EditMode, Editor, PlayMode | `tests-run`, `scene-get-data`, `gameobject-find`, `screenshot-*` 编译，针对性测试，场景/预制体审计，冒烟交互 |
+| **UI / HUD** 界面 | buttons, labels, UI canvas, menus | Static, Editor, **PlayMode (4A+4B+4C)** | **[4B] `simulate-click-ui`** + [4C] `screenshot-game-view`, `reflection-method-call` UI按钮点击验证 |
+| **Project settings / package backend** 项目设置/包后端 | `ProjectSettings`, `Packages`, Input System, render pipeline | Static, Editor, PlayMode (4A+4C) | `package-list`, `script-execute`, `tests-run` 编译，后端兼容性，运行时输入路径 |
+| **PlayMode-only runtime bug** 仅运行时bug | "works for a while", "after some actions", "freezes", "no response" | Static, Editor, PlayMode (4A+4B+4C) | [4B] `record-*`, `replay-input` 复现 + [4C] `console-get-logs`, `reflection-method-call`, `screenshot-*` 日志，运行时状态探针 |
+| **Pre-acceptance sweep** 预验收检查 | "ready to accept", "before merge", "full verification" | Static, EditMode, Editor, **PlayMode (4A+4B+4C)** | 全流程验证，包含输入模拟冒烟测试 |
 
 ## File Path Hints
 <!-- 文件路径提示：根据路径推断变更类型 -->

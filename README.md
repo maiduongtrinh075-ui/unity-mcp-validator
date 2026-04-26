@@ -115,6 +115,13 @@ Or for pre-acceptance sweep:
 Run full pre-acceptance validation using $unity-mcp-validator
 ```
 
+**See [EXAMPLES.md](EXAMPLES.md) for complete validation examples including:**
+- 三消游戏滑动消除验证
+- UI 按钮点击流程验证
+- 键盘快捷键验证
+- 复杂交互序列录制回放
+- 预验收全流程检查
+
 ## Output Format
 
 ```text

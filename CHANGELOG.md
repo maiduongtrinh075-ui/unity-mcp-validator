@@ -10,21 +10,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Version number in SKILL.md frontmatter (`version: 1.1.0`)
 - `README.md` - GitHub entry documentation
+- `README_CN.md` - Chinese version
 - `CHANGELOG.md` - Version history
 - `LICENSE` - MIT license
 - `SETUP.md` - Complete setup guide for users and agents
+- `EXAMPLES.md` - Complete validation examples including input simulation
 - `validation-config.example.yaml` - Configuration template
 - `references/troubleshooting.md` - Troubleshooting guide
 - Preflight checks section in SKILL.md
 - Installation section with detailed steps
 - Blockers section in output-contract.md
 - MCP server configuration instructions
+- **Layer 4 split into 4A/4B/4C sub-processes (input simulation as core)**
+- **Input simulation integrated into routing table**
+- **Core Contract updated: "Simulate human testing" added**
 
 ### Changed
 - Improved `agents/openai.yaml` with version info and capabilities
 - Added Mermaid decision flowchart to route-matrix.md
 - Fixed namespace typo in custom-tools-input.md
 - Quick Start now references SETUP.md
+- **Routing table now explicitly requires Layer 4B for input/interaction validation**
 
 ## [1.0.0] - 2025-12-01
 

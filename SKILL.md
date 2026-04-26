@@ -32,9 +32,10 @@ Follow this contract on every run:
 1. **Classify first** — 先分类变更类型，再选择工具
 2. **Cheapest first** — 从最便宜的验证层开始
 3. **Escalate when needed** — 只在变更类型需要时才升级到 PlayMode
-4. **Probe runtime bugs** — PlayMode bug 是探针任务，不只是单元测试
-5. **Be honest about blockers** — Unity-MCP 不可用时明确说明，不要假装完成
-6. **No premature acceptance** — 必需的验证层未执行时，不要标记"可接受"
+4. **Simulate human testing** — **交互验证必须模拟输入操作（点击、滑动、按键），这是验证流程正确性的核心**
+5. **Probe runtime bugs** — PlayMode bug 是探针任务，不只是单元测试
+6. **Be honest about blockers** — Unity-MCP 不可用时明确说明，不要假装完成
+7. **No premature acceptance** — 必需的验证层未执行时，不要标记"可接受"
 
 ## Quick Start
 
@@ -48,6 +49,8 @@ Follow this contract on every run:
 6. Report using [references/output-contract.md](references/output-contract.md).
 
 If the task spans multiple categories, validate against the **strictest** route, not the cheapest one.
+
+For complete validation examples including input simulation, see [EXAMPLES.md](EXAMPLES.md).
 
 For issues encountered during validation, see [references/troubleshooting.md](references/troubleshooting.md).
 
@@ -149,38 +152,84 @@ This layer answers "is the scene/prefab/editor state actually assembled the way 
 
 Use this layer for input, interaction, animation/state transitions, UI button flows, and any runtime-only bug.
 
-**Unity-MCP 工具：**
+**Layer 4 包含三个子流程：**
+
+#### 4A: PlayMode 控制
+
 | 工具 | 用途 |
 |------|------|
 | `editor-application-get-state` | 获取编辑器状态（PlayMode、暂停、编译） |
 | `editor-application-set-state` | 控制编辑器状态（启动/停止/暂停 PlayMode） |
+
+**流程：**
+```
+editor-application-set-state playMode=true → 进入 PlayMode
+[执行验证操作]
+editor-application-set-state playMode=false → 退出 PlayMode
+```
+
+#### 4B: 输入模拟（核心）
+
+**输入模拟是 Layer 4 的核心部分，用于：**
+- 点击按钮验证 UI 流程
+- 滑动验证三消游戏消除逻辑
+- 拖拽验证拖放功能
+- 按键验证快捷键/游戏输入
+- 回放录制序列验证复杂交互
+
+| 工具 | 用途 | 典型场景 |
+|------|------|----------|
+| `simulate-click-ui` | 点击 UI 元素 | 按钮、菜单、开关 |
+| `simulate-click-world` | 点击世界空间对象 | 三消格子、游戏对象 |
+| `simulate-drag-world` | 拖拽操作 | 三消滑动消除、拖放 |
+| `simulate-key-press` | 按键 | 快捷键、游戏控制 |
+| `record-start/stop` | 录制输入 | 手动复现 bug |
+| `replay-input` | 回放录制 | 确定性复现问题 |
+
+**三消游戏示例：**
+```
+1. 进入 PlayMode
+2. simulate-drag-world startX=100 startY=200 endX=300 endY=200 → 滑动
+3. screenshot-game-view → 检查是否消除
+4. reflection-method-call → 检查分数/状态变化
+```
+
+**注意：** 输入模拟工具需安装到项目中（见 SETUP.md Step 2）。
+
+#### 4C: 证据收集与状态探针
+
+| 工具 | 用途 |
+|------|------|
 | `screenshot-game-view` | 捕获游戏视图截图 |
-| `screenshot-scene-view` | 捕获场景视图截图 |
 | `screenshot-camera` | 从指定相机捕获截图 |
 | `console-get-logs` | 获取运行时日志 |
-| `reflection-method-call` | 调用任何 C# 方法（运行时探针） |
+| `reflection-method-call` | 调用任何 C# 方法检查状态 |
 | `reflection-method-find` | 查找项目中的方法 |
 | `script-execute` | 动态编译执行 C# 代码探针 |
 
-**输入模拟需自定义 Tool（安装到你的 Unity 项目）：**
-Unity-MCP 没有内置输入模拟，需要在你的 Unity 项目中添加自定义 Tool：
-
-```
-你的Unity项目/
-└── Assets/
-    └── Scripts/
-        └── MCP/
-            ├── Tool_MouseInput.cs       # 世界空间鼠标输入
-            ├── Tool_MouseUI.cs          # UI 空间鼠标输入
-            ├── Tool_KeyboardInput.cs    # 键盘输入
-            └── Tool_InputRecording.cs   # 录制与回放
+**验证三消消除后状态：**
+```csharp
+// reflection-method-call 或 script-execute
+var board = FindObjectOfType<Board>();
+return $"Gems: {board.GemCount}, Score: {board.Score}, Phase: {board.CurrentPhase}";
 ```
 
-详细代码见 [references/custom-tools-input.md](references/custom-tools-input.md)。
-将这些 C# 文件复制到你的 Unity 项目后，Unity-MCP 会自动识别并注册。
+---
 
-This layer is required for "I played a few times and then it stopped responding" bugs.
-<!-- 这层是必需的，针对"玩了几次然后没反应了"这类bug -->
+**Layer 4 完整流程示例（三消滑动验证）：**
+
+```
+1. [4A] editor-application-set-state playMode=true → 进入 PlayMode
+2. [4C] screenshot-game-view → 基线截图
+3. [4B] simulate-drag-world startX=100 startY=200 endX=300 endY=200 → 模拟滑动
+4. [4C] screenshot-game-view → 检查消除效果
+5. [4C] console-get-logs → 检查是否有错误
+6. [4C] reflection-method-call → 检查分数是否增加、状态是否正确
+7. [4A] editor-application-set-state playMode=false → 退出 PlayMode
+```
+
+This layer is required for "I played a few times and then it stopped responding" bugs and any interaction-based validation.
+<!-- 这层是必需的，针对交互验证和"玩了几次然后没反应了"这类bug -->
 
 ## Routing Workflow
 
