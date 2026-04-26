@@ -1,0 +1,17 @@
+interface:
+  display_name: "Unity MCP Validator"
+  version: "1.1.0"
+  short_description: "Route Unity changes to validation flow via Unity-MCP."
+  default_prompt: "Use $unity-mcp-validator to decide and execute the correct validation flow for this Unity change using Unity-MCP tools."
+  capabilities:
+    - "Classify Unity changes by type (model, controller, input, animation, scene, UI, settings)"
+    - "Route to appropriate validation layers (static, EditMode, Editor, PlayMode)"
+    - "Execute runtime probes via reflection-method-call"
+    - "Run dynamic C# code via script-execute (Roslyn)"
+    - "Collect evidence (screenshots, logs, state snapshots)"
+    - "Report with explicit verdicts and blockers"
+  dependencies:
+    - name: "Unity-MCP"
+      url: "https://github.com/IvanMurzak/Unity-MCP"
+      required: true
+  config_file: "validation-config.yaml"

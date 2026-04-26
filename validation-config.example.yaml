@@ -1,0 +1,115 @@
+# Unity MCP Validator - Configuration Example
+# Copy this file to your project root as `validation-config.yaml` and customize.
+
+config_version: "1.0"
+
+# ============================================================
+# CORE INVARIANTS
+# Key behaviors that must not regress during validation.
+# ============================================================
+invariants:
+  - name: "input_lock_during_animation"
+    description: "Input must stay locked during critical animations"
+    check_hint: "Use reflection-method-call to check InputLocked during PlayMode"
+
+  - name: "no_direct_view_mutation"
+    description: "View must not mutate model state directly"
+    check_hint: "Static review: look for Model writes in View classes"
+
+  - name: "controller_phase_cleanup"
+    description: "Controller must return to idle after action completes"
+    check_hint: "Use reflection-method-call to check CurrentPhase after action"
+
+  - name: "scene_wiring_integrity"
+    description: "Scene/prefab references must match script assumptions"
+    check_hint: "Use assets-get-data and gameobject-component-get for inspection"
+
+# ============================================================
+# KEY CLASSES
+# Core classes for runtime probing via reflection.
+# ============================================================
+key_classes:
+  controller:
+    class_name: "GameController"
+    assembly: "Assembly-CSharp"
+
+  state_machine:
+    enum_name: "GamePhase"
+    assembly: "Assembly-CSharp"
+
+  input_lock:
+    class_name: "InputManager"
+    property_name: "IsLocked"
+    assembly: "Assembly-CSharp"
+
+  selection:
+    class_name: "SelectionManager"
+    property_name: "CurrentSelection"
+    assembly: "Assembly-CSharp"
+
+# ============================================================
+# FILE PATH PATTERNS
+# Used for routing hints when change type is unclear.
+# ============================================================
+file_patterns:
+  model_rules:
+    - "Scripts/Model/**"
+    - "Scripts/Rules/**"
+    - "Scripts/Logic/**"
+
+  controller_state_machine:
+    - "Scripts/Controller/**"
+    - "Scripts/StateMachines/**"
+
+  input_interaction:
+    - "Scripts/Input/**"
+    - "Scripts/Interaction/**"
+
+  animation_timing:
+    - "Scripts/Animation/**"
+    - "Scripts/Tween/**"
+
+  scene_prefab:
+    - "Assets/Scenes/**"
+    - "Assets/Prefabs/**"
+
+  ui_hud:
+    - "Scripts/UI/**"
+    - "Assets/UI/**"
+
+# ============================================================
+# CUSTOM TOOLS
+# Reference to custom MCP tools added to the project.
+# ============================================================
+custom_tools:
+  # Set to true if you've added the input simulation tools
+  input_simulation_installed: false
+
+  # Path to custom tool scripts (for reference)
+  custom_tools_path: "Assets/Scripts/MCP/"
+
+  # Available custom tools (when installed)
+  available_tools:
+    - "simulate-click-world"
+    - "simulate-click-ui"
+    - "simulate-mouse-down"
+    - "simulate-mouse-up"
+    - "simulate-drag-world"
+    - "simulate-key-press"
+    - "record-start"
+    - "record-stop"
+    - "replay-input"
+
+# ============================================================
+# ACCEPTANCE THRESHOLDS
+# ============================================================
+acceptance:
+  pre_acceptance_layers:
+    - static
+    - editmode
+    - editor
+    - playmode
+
+  min_screenshots: 2
+  min_log_captures: 1
+  allow_conditional: true
