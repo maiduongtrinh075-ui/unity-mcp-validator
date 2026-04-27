@@ -1,6 +1,6 @@
 ---
 name: unity-mcp-validator
-version: "2.1.0"
+version: "2.2.0"
 description: Route Unity changes to the correct validation flow using Unity-MCP tools. Use when deciding, executing, and reporting reliable validation for gameplay logic, controller/state-machine changes, input and interaction, animation timing, scene or prefab wiring, UI/HUD changes, ProjectSettings or package changes, PlayMode-only regressions, or final pre-acceptance checks. Especially use after edits under Assets/Scripts, Assets/Scenes, Assets/Prefabs, ProjectSettings, Packages, or when a bug appears only after playing for a while.
 dependencies:
   - Unity-MCP plugin (https://github.com/IvanMurzak/Unity-MCP)

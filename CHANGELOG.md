@@ -5,6 +5,37 @@ All notable changes to this skill will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-04-27
+
+### Added — v2.2: Integrated Workflow（一体化体验，比 CLI 更方便）
+
+**MCP 相比 CLI 的优势：**
+
+| 操作 | CLI 流程 | MCP 流程 |
+|------|---------|---------|
+| 点击 UI | annotate → 手动输入坐标 | annotate → `simulate-click-by-label label="B"` |
+| 拖拽 UI | annotate → 手动输入起点终点 | annotate → `simulate-drag-by-label startLabel="A" endLabel="D"` |
+| 按名称操作 | ❌ 不支持 | ✅ `simulate-click-by-name name="StartButton"` |
+
+**新增工具：**
+
+- `ui-annotate-elements` — 类似 CLI 的 `screenshot --annotate-elements --elements-only`
+- `simulate-click-by-label` — 按 Label (A/B/C) 点击，无需手动输入坐标
+- `simulate-drag-by-label` — 按 Label 拖拽，自动查找坐标
+- `simulate-click-by-name` — 按 GameObject 名称直接点击
+- `simulate-drag-by-name` — 按 GameObject 名称直接拖拽
+
+**推荐工作流程：**
+```
+# Step 1: 获取元素列表
+ui-annotate-elements
+# 输出: A: StartButton, B: LevelItem_01 [draggable]
+
+# Step 2: 直接用 Label 操作（无需手动输入坐标）
+simulate-click-by-label label="A"
+simulate-drag-by-label startLabel="B" endLabel="D"
+```
+
 ## [2.1.0] - 2026-04-27
 
 ### Added — v2.1: Enhanced Input Tools (参考 unity-cli-loop)
