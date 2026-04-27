@@ -59,8 +59,6 @@ For complete validation examples including input simulation, see [EXAMPLES.md](E
 
 For issues encountered during validation, see [references/troubleshooting.md](references/troubleshooting.md).
 
-## Validation Layers
-
 ## Installation
 
 This skill requires the Unity-MCP plugin. Setup steps:
@@ -113,7 +111,7 @@ Before executing validation, verify:
 
 If any check fails, report it explicitly and continue with available layers.
 
-## Quick Start
+## Validation Layers
 <!-- 四层验证体系：从便宜到昂贵，按需升级 -->
 
 Use these layers as building blocks. Do not skip a required layer for the routed category.
