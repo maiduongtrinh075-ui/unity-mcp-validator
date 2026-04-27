@@ -10,7 +10,17 @@ Instead of ad-hoc "run some tests" behavior, this skill provides systematic vali
 2. **Route** to appropriate validation layers (static review → EditMode → Editor → PlayMode)
 3. **Execute** required layers using 100+ Unity-MCP tools
 4. **Probe** runtime bugs with reflection and dynamic code execution
-5. **Report** with explicit verdicts and blockers
+5. **Report** with explicit verdicts and blockers (Markdown + JSON dual output)
+
+## v2.0 Highlights
+
+| Feature | Problem Solved | Solution |
+|---------|---------------|----------|
+| **Async wait tools** | Timing sync — Thread.Sleep is flaky | `wait-until-condition`, `wait-for-animation-state`, etc. |
+| **UI DOM snapshot** | Screenshot assertion blind spots | `ui-hierarchy-snapshot` — data-level UI assertions |
+| **State reset** | Test case state contamination | `state-reset` — clean state between test cases |
+| **Test backdoor API** | Hard to construct edge cases | `reflection-method-call` to TestHelper methods |
+| **JSON output** | No machine-consumable report | Structured JSON alongside Markdown report |
 
 ## Unity-MCP Advantages
 
@@ -32,11 +42,14 @@ Instead of ad-hoc "run some tests" behavior, this skill provides systematic vali
 |------|---------|
 | 1. Install Unity-MCP plugin | `npm install -g unity-mcp-cli && unity-mcp-cli install-plugin ./YourProject` |
 | 2. Add custom input tools | Copy code from `references/custom-tools-input.md` |
-| 3. Configure MCP server | Add to Claude Code MCP config (see SETUP.md) |
-| 4. Test connection | Call `editor-application-get-state` |
-| 5. Create config (optional) | Copy `validation-config.example.yaml` |
+| 3. **Add wait tools (v2.0)** | Copy code from `references/custom-tools-wait.md` |
+| 4. **Add UI snapshot tools (v2.0)** | Copy code from `references/ui-snapshot-tool.md` |
+| 5. **Add state reset tool (v2.0)** | Copy code from `references/state-reset.md` |
+| 6. Configure MCP server | Add to Claude Code MCP config (see SETUP.md) |
+| 7. Test connection | Call `editor-application-get-state` |
+| 8. Create config (optional) | Copy `validation-config.example.yaml` |
 
-## Skills Reference
+## Validation Layers
 
 ### Layer 1: Static Review
 No MCP tools needed — read diff and code.
@@ -55,107 +68,120 @@ No MCP tools needed — read diff and code.
 | `gameobject-component-get` | Get component details |
 | `assets-get-data` | Get asset/prefab data |
 | `console-get-logs` | Get Unity Console logs |
+| **`ui-hierarchy-snapshot`** | **UI DOM tree structure snapshot** |
 
-### Layer 4: PlayMode Automation (三层子流程)
+### Layer 4: PlayMode Automation (v2.0 Enhanced)
 
-Layer 4 分为三个子流程，**输入模拟（4B）是交互验证的核心**：
+Layer 4 now includes 5 sub-layers:
 
-#### 4A: PlayMode 控制
-| Tool | Purpose |
-|------|---------|
-| `editor-application-set-state` | Enter/exit PlayMode |
+| Sub-layer | Purpose | Key Tools |
+|-----------|---------|-----------|
+| **4A-Pre** | State reset | `state-reset`, `reflection-method-call` |
+| **4A** | PlayMode enter/exit | `editor-application-set-state` |
+| **4B** | Input simulation | `simulate-click-ui`, `simulate-drag-world`, `simulate-key-press` |
+| **4B-Post** | Wait for stability | `wait-until-condition`, `wait-for-animation-state` |
+| **4C** | Evidence collection | `screenshot-game-view`, `ui-hierarchy-snapshot`, `reflection-method-call` |
 
-#### 4B: 输入模拟（核心）
-**交互验证必须执行此层，模拟人类操作：**
-
-| Tool | Purpose | Example |
-|------|---------|---------|
-| `simulate-click-ui` | Click UI elements | Button, menu, toggle |
-| `simulate-click-world` | Click world-space objects | Match3 grid, game objects |
-| `simulate-drag-world` | Drag operation | **Match3 sliding elimination** |
-| `simulate-key-press` | Keyboard input | ESC, Space, shortcuts |
-| `record-start/stop` | Record input sequence | Manual bug reproduction |
-| `replay-input` | Replay recorded input | Deterministic reproduction |
-
-#### 4C: 证据收集
-| Tool | Purpose |
-|------|---------|
-| `screenshot-game-view` | Capture game screenshots |
-| `reflection-method-call` | Call any C# method at runtime |
-| `reflection-method-find` | Find methods to call |
-| `console-get-logs` | Get runtime logs |
-
-**完整验证流程示例（三消滑动）：**
+**Complete validation flow (Match3 sliding example):**
 ```
-[4A] Enter PlayMode → [4B] simulate-drag-world → [4C] screenshot + reflection-method-call → [4A] Exit PlayMode
+[4A-Pre] state-reset → [4A] Enter PlayMode → [4A] wait-until-condition →
+[4C] baseline screenshot + UI snapshot →
+[4B] simulate-drag-world → [4B-Post] wait-until-condition →
+[4C] result screenshot + UI snapshot + reflection probe →
+[4A] Exit PlayMode
 ```
 
 **See [EXAMPLES.md](EXAMPLES.md) for detailed examples.**
 
+## v2.0 New Tools
+
+### Async Wait Tools
+| Tool | Purpose |
+|------|---------|
+| `wait-until-condition` | Poll C# condition until true or timeout |
+| `wait-for-animation-state` | Wait for Animator to reach state |
+| `wait-for-frame-count` | Wait N frames (for UI layout rebuild) |
+| `wait-for-stable` | Wait for condition + no new errors |
+
+### UI DOM Snapshot Tools
+| Tool | Purpose |
+|------|---------|
+| `ui-hierarchy-snapshot` | Capture Canvas UI tree structure |
+| `ui-element-find` | Find specific UI element by name |
+| `ui-element-at-position` | Find UI element at screen position |
+
+### State Reset Tool
+| Tool | Purpose |
+|------|---------|
+| `state-reset` | Reset game to clean state between test cases |
+
+### Test Backdoor API
+Not a standalone MCP tool — project C# methods called via `reflection-method-call`:
+```bash
+reflection-method-call typeName="TestHelper" methodName="SkipTutorial"
+reflection-method-call typeName="BoardTestHelper" methodName="SetupChainExplosion"
+```
+
 ## Configuration
 
-Copy `validation-config.example.yaml` to project root:
+Copy `validation-config.example.yaml` to project root. v2.0 adds:
 
 ```yaml
-invariants:
-  - name: "input_lock_during_animation"
-    description: "Input must stay locked during critical animations"
+custom_tools:
+  wait_tools_installed: true
+  ui_snapshot_installed: true
+  state_reset_installed: true
 
-key_classes:
-  controller:
-    class_name: "GameController"
-  input_lock:
-    class_name: "InputManager"
-    property_name: "IsLocked"
+state_reset:
+  default_strategy: "auto"
+  custom_method: "TestHelper.ResetAll"
 
-file_patterns:
-  model_rules:
-    - "Scripts/Model/**"
-  controller_state_machine:
-    - "Scripts/Controller/**"
+test_backdoors:
+  - class_name: "BoardTestHelper"
+    methods:
+      - name: "SetupChainExplosion"
+
+wait_defaults:
+  default_timeout_seconds: 5
+  animation_timeout_seconds: 10
+
+output:
+  dual_format: true
+  json_schema_version: "2.0"
 ```
 
-## Usage
+## Output Format (v2.0 Dual Track)
 
-Invoke the skill in Claude Code:
+Every validation produces two reports:
 
-```
-Use $unity-mcp-validator to validate the controller changes
-```
+| Format | Consumer | Purpose |
+|--------|----------|---------|
+| Markdown | Human developer | Quick review, debugging |
+| JSON | CI/CD, Codex | Automated pass/fail, tracking |
 
-Or for pre-acceptance sweep:
+See [references/output-contract.md](references/output-contract.md) for Markdown format.
+See [references/json-output-schema.md](references/json-output-schema.md) for JSON schema.
 
-```
-Run full pre-acceptance validation using $unity-mcp-validator
-```
+## Documentation Index
 
-**See [EXAMPLES.md](EXAMPLES.md) for complete validation examples including:**
-- 三消游戏滑动消除验证
-- UI 按钮点击流程验证
-- 键盘快捷键验证
-- 复杂交互序列录制回放
-- 预验收全流程检查
-
-## Output Format
-
-```text
-Route: Input / interaction + PlayMode runtime regression
-Layers run:
-- Static review: ran
-- EditMode: skipped by route
-- Unity Editor inspection: ran
-- PlayMode automation: ran
-
-Unity-MCP tools used:
-- script-execute: compiled successfully
-- scene-get-data: hierarchy valid
-- reflection-method-call: controller.CurrentPhase = 'Processing'
-
-Evidence: [screenshots, logs, state snapshots]
-
-Verdict: Acceptable now / Conditionally acceptable / Not acceptable yet
-Next action: [most useful Unity-MCP command]
-```
+| File | Description |
+|------|-------------|
+| [SKILL.md](SKILL.md) | Skill definition and core contract |
+| [SETUP.md](SETUP.md) | Complete setup guide |
+| [EXAMPLES.md](EXAMPLES.md) | Validation examples (v2.0 enhanced) |
+| [CHANGELOG.md](CHANGELOG.md) | Version history |
+| [validation-config.example.yaml](validation-config.example.yaml) | Config template (v2.0) |
+| [references/route-matrix.md](references/route-matrix.md) | Change classification → validation route |
+| [references/output-contract.md](references/output-contract.md) | Markdown report format |
+| [references/json-output-schema.md](references/json-output-schema.md) | JSON report schema (v2.0) |
+| [references/runtime-probes.md](references/runtime-probes.md) | Runtime bug probe ladder |
+| [references/tool-reference.md](references/tool-reference.md) | Unity-MCP tool reference |
+| [references/troubleshooting.md](references/troubleshooting.md) | Troubleshooting guide |
+| [references/custom-tools-input.md](references/custom-tools-input.md) | Input simulation tool code |
+| [references/custom-tools-wait.md](references/custom-tools-wait.md) | Wait tool code (v2.0) |
+| [references/ui-snapshot-tool.md](references/ui-snapshot-tool.md) | UI snapshot tool code (v2.0) |
+| [references/state-reset.md](references/state-reset.md) | State reset tool code (v2.0) |
+| [references/test-backdoors.md](references/test-backdoors.md) | Test backdoor API guide (v2.0) |
 
 ## Troubleshooting
 
@@ -164,7 +190,7 @@ See [references/troubleshooting.md](references/troubleshooting.md) for runtime i
 
 ## Version
 
-Current version: **1.1.0**
+Current version: **2.0.0**
 
 See [CHANGELOG.md](CHANGELOG.md) for version history.
 

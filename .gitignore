@@ -1,0 +1,12 @@
+# WorkBuddy working memory
+.workbuddy/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vs/
+.vscode/
+*.swp
+*.swo

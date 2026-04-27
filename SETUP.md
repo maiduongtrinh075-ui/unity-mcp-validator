@@ -1,4 +1,4 @@
-# Setup Guide
+# Setup Guide (v2.0)
 
 Complete setup instructions for Unity-MCP Validator. Follow this guide to make the skill fully functional.
 
@@ -10,9 +10,13 @@ Complete these steps before using the validator:
 |------|--------|----------------|
 | 1. Install Unity-MCP plugin | ⬜ | `npm install -g unity-mcp-cli && unity-mcp-cli install-plugin ./YourProject` |
 | 2. Copy custom input tools | ⬜ | Copy code from `references/custom-tools-input.md` |
-| 3. Configure MCP server | ⬜ | Add to Claude Code MCP config |
-| 4. Test connection | ⬜ | Call `editor-application-get-state` |
-| 5. Create config file | ⬜ (optional) | Copy `validation-config.example.yaml` |
+| 3. **Add wait tools (v2.0)** | ⬜ | Copy code from `references/custom-tools-wait.md` |
+| 4. **Add UI snapshot tools (v2.0)** | ⬜ | Copy code from `references/ui-snapshot-tool.md` |
+| 5. **Add state reset tool (v2.0)** | ⬜ | Copy code from `references/state-reset.md` |
+| 6. **Add test backdoor API (v2.0)** | ⬜ | See `references/test-backdoors.md` |
+| 7. Configure MCP server | ⬜ | Add to Claude Code MCP config |
+| 8. Test connection | ⬜ | Call `editor-application-get-state` |
+| 9. Create config file | ⬜ (optional) | Copy `validation-config.example.yaml` |
 
 ---
 
@@ -96,7 +100,161 @@ Or via MCP: call `simulate-click-world x=100 y=100` — should return `[Success]
 
 ---
 
-## Step 3: Configure MCP Server
+## Step 3: Add Wait Tools (v2.0 新增)
+
+**解决时序不同步问题：** 交互操作后必须等待状态稳定，禁止写死 Thread.Sleep。
+
+### Copy Code
+
+Open `references/custom-tools-wait.md` and copy the Tool code:
+
+| File | Tool Functions |
+|------|----------------|
+| `Tool_WaitUntil.cs` | `wait-until-condition`, `wait-for-animation-state`, `wait-for-frame-count`, `wait-for-stable` |
+
+### Place in Project
+
+```
+YourUnityProject/Assets/Scripts/MCP/
+└── Tool_WaitUntil.cs
+```
+
+### Verify
+
+```bash
+# MCP 调用测试
+wait-until-condition condition="true" timeoutSeconds=1
+# 期望返回：Condition met immediately
+```
+
+---
+
+## Step 4: Add UI Snapshot Tools (v2.0 新增)
+
+**解决截图断言盲区：** UI 验证使用数据断言而非靠大模型判断截图。
+
+### Copy Code
+
+Open `references/ui-snapshot-tool.md` and copy the Tool code:
+
+| File | Tool Functions |
+|------|----------------|
+| `Tool_UISnapshot.cs` | `ui-hierarchy-snapshot`, `ui-element-find`, `ui-element-at-position` |
+
+### Place in Project
+
+```
+YourUnityProject/Assets/Scripts/MCP/
+└── Tool_UISnapshot.cs
+```
+
+### Verify
+
+```bash
+# MCP 调用测试
+ui-hierarchy-snapshot format="summary"
+# 期望返回：Canvas 层级结构摘要
+
+ui-element-find name="Canvas"
+# 期望返回：Canvas 元素信息
+```
+
+---
+
+## Step 5: Add State Reset Tool (v2.0 新增)
+
+**消除测试间状态污染：** 多个 PlayMode 测试用例之间必须重置状态。
+
+### Copy Code
+
+Open `references/state-reset.md` and copy the Tool code and helper class:
+
+| File | Purpose |
+|------|---------|
+| `Tool_StateReset.cs` | MCP 工具：`state-reset` |
+| `TestHelper.cs` | 项目级重置辅助类（需按项目自定义） |
+
+### Place in Project
+
+```
+YourUnityProject/Assets/Scripts/MCP/
+└── Tool_StateReset.cs
+
+YourUnityProject/Assets/Scripts/
+└── TestHelper.cs      ← 按项目自定义 ResetAll() 方法
+```
+
+### Customize TestHelper
+
+根据你的项目自定义 `TestHelper.ResetAll()`：
+
+```csharp
+// TestHelper.cs — 按你的项目修改
+#if UNITY_EDITOR
+public static class TestHelper
+{
+    public static void ResetAll()
+    {
+        // 重置单例
+        if (GameController.Instance != null)
+            GameController.Instance.ResetState();
+
+        // 重置分数
+        PlayerPrefs.DeleteAll();
+
+        // 重置其他全局状态...
+    }
+}
+#endif
+```
+
+### Verify
+
+```bash
+# MCP 调用测试
+state-reset strategy="auto"
+# 期望返回：State reset successfully
+```
+
+---
+
+## Step 6: Add Test Backdoor API (v2.0 新增，可选)
+
+**极速构造边界测试场景：** 通过 reflection-method-call 调用后门方法。
+
+详见 `references/test-backdoors.md`。
+
+### 创建后门类
+
+```csharp
+// BoardTestHelper.cs — 按你的项目修改
+#if UNITY_EDITOR
+public static class BoardTestHelper
+{
+    public static void SetupChainExplosion()
+    {
+        // 构造"即将触发连锁爆炸"的棋盘布局
+    }
+
+    public static void SetupNoValidMoves()
+    {
+        // 构造"无有效移动"的边界场景
+    }
+}
+#endif
+```
+
+### Verify
+
+```bash
+# MCP 调用测试
+reflection-method-call typeName="TestHelper" methodName="ResetAll"
+# 期望返回：方法调用成功
+```
+
+---
+
+## Step 7: Configure MCP Server
 
 ### Claude Code Configuration
 
@@ -143,7 +301,7 @@ If using Claude Desktop app:
 
 ---
 
-## Step 4: Test Connection
+## Step 8: Test Connection
 
 ### Quick Test via MCP Tool
 
@@ -173,7 +331,7 @@ Expected response:
 
 ---
 
-## Step 5: Create Config File (Optional)
+## Step 9: Create Config File (Optional)
 
 ### Copy Template
 
@@ -183,26 +341,96 @@ cp validation-config.example.yaml YourUnityProject/validation-config.yaml
 
 ### Customize
 
-Edit `validation-config.yaml` for your project:
+Edit `validation-config.yaml` for your project — see next section for v2.0 config options.
+
+---
+
+## Configuration Reference (v2.0)
+
+### Core Config
 
 ```yaml
+config_version: "2.0"
+
+# Key behaviors that must not regress
+invariants:
+  - name: "input_lock_during_animation"
+    description: "Input must stay locked during critical animations"
+    check_hint: "Use reflection-method-call to check InputLocked during PlayMode"
+
+# Core classes for runtime probing
 key_classes:
   controller:
-    class_name: "MyGameController"  # Your main controller
+    class_name: "MyGameController"
     assembly: "Assembly-CSharp"
   state_machine:
-    enum_name: "MyGamePhase"        # Your phase enum
+    enum_name: "MyGamePhase"
   input_lock:
     class_name: "MyInputManager"
     property_name: "IsLocked"
 
+# File path patterns for routing hints
 file_patterns:
   model_rules:
     - "Scripts/Model/**"
-    - "Scripts/GameLogic/**"
   controller_state_machine:
     - "Scripts/Controller/**"
-    - "Scripts/Flow/**"
+```
+
+### v2.0 New Config Sections
+
+```yaml
+# Custom tools availability (v2.0)
+custom_tools:
+  input_simulation_installed: true
+  wait_tools_installed: true        # NEW: wait-until-condition 等
+  ui_snapshot_installed: true       # NEW: ui-hierarchy-snapshot 等
+  state_reset_installed: true       # NEW: state-reset
+  custom_tools_path: "Assets/Scripts/MCP/"
+
+# State reset strategy (v2.0)
+state_reset:
+  default_strategy: "auto"          # auto | reload | custom
+  custom_method: "TestHelper.ResetAll"
+  confirm_condition: "GameController.Instance != null"
+  timeout_seconds: 5
+
+# Test backdoor API (v2.0)
+test_backdoors:
+  - class_name: "TestHelper"
+    methods:
+      - name: "ResetAll"
+        description: "Reset all game state"
+      - name: "SkipTutorial"
+        description: "Skip tutorial to test core logic"
+  - class_name: "BoardTestHelper"
+    methods:
+      - name: "SetupChainExplosion"
+        description: "Setup board for chain explosion"
+      - name: "SetupNoValidMoves"
+        description: "Setup board with no valid moves"
+  - class_name: "EconomyTestHelper"
+    methods:
+      - name: "SetupResourceScarce"
+        description: "Setup extremely scarce resources"
+  - class_name: "UITestHelper"
+    methods:
+      - name: "ForceGameOver"
+        description: "Force game over screen"
+
+# Wait defaults (v2.0)
+wait_defaults:
+  default_timeout_seconds: 5
+  animation_timeout_seconds: 10
+  stable_check_frames: 10
+  frame_count_for_ui: 2
+
+# Output format (v2.0)
+output:
+  dual_format: true                 # Both Markdown + JSON
+  json_schema_version: "2.0"
+  include_state_snapshots: true
+  include_ui_snapshots: true
 ```
 
 ---
@@ -221,23 +449,43 @@ unity-mcp-cli install-plugin ./YourUnityProject
 # 3. Create MCP scripts folder
 mkdir -p YourUnityProject/Assets/Scripts/MCP
 
-# 4. Copy custom tools (agent should read and write these files)
+# 4. Copy custom input tools (read and write these files)
 # Read: references/custom-tools-input.md
 # Write: YourUnityProject/Assets/Scripts/MCP/Tool_MouseInput.cs
 # Write: YourUnityProject/Assets/Scripts/MCP/Tool_MouseUI.cs
 # Write: YourUnityProject/Assets/Scripts/MCP/Tool_KeyboardInput.cs
 # Write: YourUnityProject/Assets/Scripts/MCP/Tool_InputRecording.cs
 
-# 5. Wait for Unity to compile (check Unity Console)
+# 5. Copy wait tools (v2.0)
+# Read: references/custom-tools-wait.md
+# Write: YourUnityProject/Assets/Scripts/MCP/Tool_WaitUntil.cs
 
-# 6. Test connection
+# 6. Copy UI snapshot tools (v2.0)
+# Read: references/ui-snapshot-tool.md
+# Write: YourUnityProject/Assets/Scripts/MCP/Tool_UISnapshot.cs
+
+# 7. Copy state reset tool (v2.0)
+# Read: references/state-reset.md
+# Write: YourUnityProject/Assets/Scripts/MCP/Tool_StateReset.cs
+
+# 8. Create TestHelper.cs (customize for project)
+# Write: YourUnityProject/Assets/Scripts/TestHelper.cs
+
+# 9. Wait for Unity to compile (check Unity Console)
+
+# 10. Test connection
 # MCP call: editor-application-get-state
 # Expected: {"isPlaying": false, ...}
+
+# 11. Test v2.0 tools
+# MCP call: wait-until-condition condition="true" timeoutSeconds=1
+# MCP call: ui-hierarchy-snapshot format="summary"
+# MCP call: state-reset strategy="auto"
 ```
 
 ---
 
-## Verification Checklist
+## Verification Checklist (v2.0)
 
 After setup, verify each component works:
 
@@ -248,8 +496,12 @@ After setup, verify each component works:
 | Scene access | `scene-list-opened` | List of open scenes |
 | GameObject find | `gameobject-find name="Camera"` | Camera object info |
 | Reflection works | `reflection-method-find typeName="UnityEngine.Debug"` | Debug class methods |
-| Custom tools | `simulate-click-world x=100 y=100` | `[Success]` or raycast info |
+| Custom input tools | `simulate-click-world x=100 y=100` | `[Success]` or raycast info |
 | Screenshots | `screenshot-game-view` | Image path returned |
+| **Wait tools** | **`wait-until-condition condition="true" timeoutSeconds=1`** | **Condition met** |
+| **UI snapshot** | **`ui-hierarchy-snapshot format="summary"`** | **Canvas hierarchy** |
+| **State reset** | **`state-reset strategy="auto"`** | **State reset success** |
+| **Test backdoor** | **`reflection-method-call typeName="TestHelper" methodName="ResetAll"`** | **Method called** |
 
 ---
 
@@ -259,7 +511,10 @@ After setup, verify each component works:
 |-------|-------------|-----|
 | MCP tools not available | MCP config file | Add unity-mcp server |
 | Unity not responding | Unity Editor open? | Open project in Unity |
-| Custom tools missing | Scripts/MCP folder? | Copy from custom-tools-input.md |
+| Custom input tools missing | Scripts/MCP folder? | Copy from custom-tools-input.md |
+| **Wait tools missing** | **Tool_WaitUntil.cs?** | **Copy from custom-tools-wait.md** |
+| **UI snapshot missing** | **Tool_UISnapshot.cs?** | **Copy from ui-snapshot-tool.md** |
+| **State reset failing** | **TestHelper.cs configured?** | **Customize ResetAll() for project** |
 | Input System errors | Package installed? | Install Input System package |
 | Compilation errors | Unity Console | Fix script errors first |
 | Port conflict | MCP config port | Change port number |
@@ -276,6 +531,10 @@ See [references/troubleshooting.md](references/troubleshooting.md) for detailed 
 | MCP server config | Claude Code | Once per Claude instance |
 | Unity-MCP plugin | Per project | Each new project |
 | Custom input tools | Per project | Each new project |
+| **Wait tools** | Per project | Each new project |
+| **UI snapshot tools** | Per project | Each new project |
+| **State reset tool** | Per project | Each new project |
+| **Test backdoor API** | Per project | Each new project (customize) |
 | validation-config.yaml | Per project | Each new project |
 
 ---
@@ -288,4 +547,23 @@ If you want to test quickly without full setup:
 2. Open Unity Editor
 3. Call `script-execute` or `editor-application-get-state`
 
-This works for Layer 1-3 validation. For PlayMode input testing, add custom tools.
+This works for Layer 1-3 validation. For PlayMode input testing, add custom input tools.
+
+**For v2.0 full experience, also add:**
+- Wait tools (solve timing issues)
+- UI snapshot tools (solve screenshot assertion blind spots)
+- State reset tool (solve test isolation)
+
+---
+
+## Tool Installation Priority
+
+If you can't install everything at once, install in this order:
+
+| Priority | Tool | Why |
+|----------|------|-----|
+| 1️⃣ | Unity-MCP plugin + input tools | Without these, no PlayMode validation |
+| 2️⃣ | Wait tools | Without these, timing-dependent tests are flaky |
+| 3️⃣ | UI snapshot tools | Without these, UI validation is unreliable |
+| 4️⃣ | State reset tool | Without these, sequential tests contaminate each other |
+| 5️⃣ | Test backdoor API | Optional — for edge case / boundary testing |

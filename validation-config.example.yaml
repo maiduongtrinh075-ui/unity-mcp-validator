@@ -1,7 +1,7 @@
-# Unity MCP Validator - Configuration Example
+# Unity MCP Validator - Configuration Example (v2.0)
 # Copy this file to your project root as `validation-config.yaml` and customize.
 
-config_version: "1.0"
+config_version: "2.0"
 
 # ============================================================
 # CORE INVARIANTS
@@ -23,6 +23,14 @@ invariants:
   - name: "scene_wiring_integrity"
     description: "Scene/prefab references must match script assumptions"
     check_hint: "Use assets-get-data and gameobject-component-get for inspection"
+
+  - name: "state_isolation_between_tests"
+    description: "Test cases must not contaminate each other's state"
+    check_hint: "Use state-reset before each PlayMode test case (v2.0)"
+
+  - name: "ui_data_consistency"
+    description: "UI display must match underlying model state"
+    check_hint: "Use ui-hierarchy-snapshot to assert UI element values (v2.0)"
 
 # ============================================================
 # KEY CLASSES
@@ -78,18 +86,32 @@ file_patterns:
     - "Assets/UI/**"
 
 # ============================================================
-# CUSTOM TOOLS
+# CUSTOM TOOLS (v1.0 + v2.0)
 # Reference to custom MCP tools added to the project.
 # ============================================================
 custom_tools:
-  # Set to true if you've added the input simulation tools
+  # v1.0: Input simulation tools
   input_simulation_installed: false
+
+  # v2.0: Async wait tools
+  wait_tools_installed: false
+  # Provides: wait-until-condition, wait-for-animation-state,
+  #           wait-for-frame-count, wait-for-stable
+
+  # v2.0: UI DOM snapshot tools
+  ui_snapshot_installed: false
+  # Provides: ui-hierarchy-snapshot, ui-element-find, ui-element-at-position
+
+  # v2.0: State reset tool
+  state_reset_installed: false
+  # Provides: state-reset
 
   # Path to custom tool scripts (for reference)
   custom_tools_path: "Assets/Scripts/MCP/"
 
   # Available custom tools (when installed)
   available_tools:
+    # v1.0: Input simulation
     - "simulate-click-world"
     - "simulate-click-ui"
     - "simulate-mouse-down"
@@ -99,6 +121,108 @@ custom_tools:
     - "record-start"
     - "record-stop"
     - "replay-input"
+    # v2.0: Wait tools
+    - "wait-until-condition"
+    - "wait-for-animation-state"
+    - "wait-for-frame-count"
+    - "wait-for-stable"
+    # v2.0: UI snapshot
+    - "ui-hierarchy-snapshot"
+    - "ui-element-find"
+    - "ui-element-at-position"
+    # v2.0: State reset
+    - "state-reset"
+
+# ============================================================
+# STATE RESET STRATEGY (v2.0)
+# Configure how state is reset between PlayMode test cases.
+# ============================================================
+state_reset:
+  # Strategy: auto | reload | custom
+  # - auto: try custom first, fall back to reload
+  # - reload: exit/re-enter PlayMode
+  # - custom: call the method specified below
+  default_strategy: "auto"
+
+  # Custom reset method (called via reflection-method-call)
+  custom_method: "TestHelper.ResetAll"
+
+  # Condition to confirm reset succeeded (used with wait-until-condition)
+  confirm_condition: "GameController.Instance != null"
+
+  # Timeout for reset confirmation
+  timeout_seconds: 5
+
+# ============================================================
+# TEST BACKDOOR API (v2.0)
+# Methods callable via reflection-method-call for boundary testing.
+# ============================================================
+test_backdoors:
+  - class_name: "TestHelper"
+    assembly: "Assembly-CSharp"
+    methods:
+      - name: "ResetAll"
+        description: "Reset all game state to initial values"
+      - name: "SkipTutorial"
+        description: "Skip tutorial, go directly to core gameplay"
+
+  - class_name: "BoardTestHelper"
+    assembly: "Assembly-CSharp"
+    methods:
+      - name: "SetupChainExplosion"
+        description: "Setup board layout that triggers chain explosion"
+      - name: "SetupNoValidMoves"
+        description: "Setup board with no valid moves available"
+
+  - class_name: "EconomyTestHelper"
+    assembly: "Assembly-CSharp"
+    methods:
+      - name: "SetupResourceScarce"
+        description: "Setup extremely scarce resource scenario"
+      - name: "SetupResourceAbundant"
+        description: "Setup abundant resource scenario"
+
+  - class_name: "UITestHelper"
+    assembly: "Assembly-CSharp"
+    methods:
+      - name: "ForceGameOver"
+        description: "Force game over screen to appear"
+      - name: "ForceLevelComplete"
+        description: "Force level complete screen to appear"
+
+# ============================================================
+# WAIT DEFAULTS (v2.0)
+# Default timeout and configuration for wait tools.
+# ============================================================
+wait_defaults:
+  # Default timeout for wait-until-condition
+  default_timeout_seconds: 5
+
+  # Longer timeout for animation waits
+  animation_timeout_seconds: 10
+
+  # Number of frames a condition must stay true for wait-for-stable
+  stable_check_frames: 10
+
+  # Frames to wait after UI interaction for layout rebuild
+  frame_count_for_ui: 2
+
+# ============================================================
+# OUTPUT FORMAT (v2.0)
+# Configure validation report output.
+# ============================================================
+output:
+  # Output both Markdown (human) and JSON (machine) reports
+  dual_format: true
+
+  # JSON schema version
+  json_schema_version: "2.0"
+
+  # Include state snapshots in JSON report
+  include_state_snapshots: true
+
+  # Include UI DOM snapshots in JSON report
+  include_ui_snapshots: true
 
 # ============================================================
 # ACCEPTANCE THRESHOLDS
@@ -113,3 +237,8 @@ acceptance:
   min_screenshots: 2
   min_log_captures: 1
   allow_conditional: true
+
+  # v2.0: Additional requirements
+  require_state_reset: true
+  require_wait_after_interaction: true
+  require_ui_snapshot_for_ui_changes: true

@@ -1,6 +1,6 @@
 ---
 name: unity-mcp-validator
-version: "1.1.0"
+version: "2.0.0"
 description: Route Unity changes to the correct validation flow using Unity-MCP tools. Use when deciding, executing, and reporting reliable validation for gameplay logic, controller/state-machine changes, input and interaction, animation timing, scene or prefab wiring, UI/HUD changes, ProjectSettings or package changes, PlayMode-only regressions, or final pre-acceptance checks. Especially use after edits under Assets/Scripts, Assets/Scenes, Assets/Prefabs, ProjectSettings, Packages, or when a bug appears only after playing for a while.
 dependencies:
   - Unity-MCP plugin (https://github.com/IvanMurzak/Unity-MCP)
@@ -21,6 +21,7 @@ Use this skill to turn a Unity change or bug report into a concrete validation r
 - 运行时支持（可在编译后的游戏内使用）
 - 测试运行（EditMode/PlayMode）
 - 截图、日志、状态检查
+- **v2.0 新增**：异步等待（wait-until-condition）、状态沙盒重置、UI DOM 树快照、测试后门 API、JSON 结构化输出
 
 Prefer this skill whenever the task involves runtime behavior, scene wiring, prefab correctness, input issues, animation/state timing, or a "works for a while then breaks" bug.
 
@@ -36,6 +37,9 @@ Follow this contract on every run:
 5. **Probe runtime bugs** — PlayMode bug 是探针任务，不只是单元测试
 6. **Be honest about blockers** — Unity-MCP 不可用时明确说明，不要假装完成
 7. **No premature acceptance** — 必需的验证层未执行时，不要标记"可接受"
+8. **Wait for state to settle** — **交互操作后必须等待游戏状态稳定（使用 wait-until-condition），禁止写死 Thread.Sleep**
+9. **Reset between tests** — **多个 PlayMode 验证用例之间必须重置状态（见 [state-reset.md](references/state-reset.md)）**
+10. **Assert with data, not visuals** — **UI 验证优先使用 ui-hierarchy-snapshot 做数据断言，截图作为辅助证据**
 
 ## Quick Start
 
@@ -47,6 +51,7 @@ Follow this contract on every run:
 4. Run the required validation layers for that class.
 5. If the issue is PlayMode-only or flaky, read [references/runtime-probes.md](references/runtime-probes.md) and gather runtime evidence.
 6. Report using [references/output-contract.md](references/output-contract.md).
+7. **Output both Markdown (human) and JSON (machine) reports** — see [references/json-output-schema.md](references/json-output-schema.md).
 
 If the task spans multiple categories, validate against the **strictest** route, not the cheapest one.
 
@@ -68,9 +73,16 @@ This skill requires the Unity-MCP plugin. Setup steps:
 
 2. **Configure MCP server** in Claude Code settings
 
-3. **Add custom input tools** (optional) — copy files from `references/custom-tools-input.md` to your project
+3. **Add custom input tools** (optional) — copy files from `references/custom-tools-input.md`
 
-4. **Create config file** (optional) — copy `validation-config.example.yaml` to project root
+4. **Add wait/snapshot/reset tools** (recommended) — copy files from:
+   - `references/custom-tools-wait.md` — 异步等待工具
+   - `references/ui-snapshot-tool.md` — UI DOM 树快照
+   - `references/state-reset.md` — 状态重置工具
+
+5. **Add test backdoor API** (optional) — see `references/test-backdoors.md`
+
+6. **Create config file** (optional) — copy `validation-config.example.yaml` to project root
 
 ### Prerequisites Check
 
@@ -82,6 +94,8 @@ Before using, verify:
 | Unity Editor open | `editor-application-get-state` | Launch Unity manually |
 | MCP server connected | Tool calls succeed | Restart MCP server |
 | Input System enabled | Project Settings → Player | Enable Input System Package |
+| Wait tools installed | Call `wait-until-condition` | Copy from `custom-tools-wait.md` |
+| UI snapshot installed | Call `ui-hierarchy-snapshot` | Copy from `ui-snapshot-tool.md` |
 
 If any prerequisite fails, report the blocker and continue with available layers.
 
@@ -95,6 +109,7 @@ Before executing validation, verify:
 | Project compiles | `script-execute` simple code | Fix compilation first |
 | Target scene known | `scene-list-opened` | Ask user or infer |
 | MCP connection works | Any tool call | Report MCP disconnected |
+| State is clean | `reflection-method-call` check initial state | Run state reset |
 
 If any check fails, report it explicitly and continue with available layers.
 
@@ -143,6 +158,9 @@ Use this layer when scenes, prefabs, inspector references, UI objects, or Projec
 | `assets-get-data` | 获取资源数据 |
 | `console-get-logs` | 获取 Unity 日志 |
 | `editor-selection-get` | 获取当前选择 |
+| `ui-hierarchy-snapshot` | **v2.0** 抓取 UI DOM 树结构快照 |
+| `ui-element-find` | **v2.0** 查找指定 UI 元素详细状态 |
+| `ui-element-at-position` | **v2.0** 查找指定坐标的 UI 元素 |
 
 This layer answers "is the scene/prefab/editor state actually assembled the way the code expects?"
 <!-- 这层回答：场景/预制体/编辑器状态是否真的按代码期望的方式组装？ -->
@@ -152,7 +170,25 @@ This layer answers "is the scene/prefab/editor state actually assembled the way 
 
 Use this layer for input, interaction, animation/state transitions, UI button flows, and any runtime-only bug.
 
-**Layer 4 包含三个子流程：**
+**Layer 4 包含三个子流程 + 前置/后置步骤：**
+
+#### 4A-Pre: 状态重置（v2.0 新增）
+
+**在每次 PlayMode 验证前重置游戏状态，确保测试隔离。**
+
+详细策略见 [references/state-reset.md](references/state-reset.md)。
+
+| 工具 | 用途 |
+|------|------|
+| `state-reset` | 重置游戏到干净状态（自定义工具） |
+| `reflection-method-call` | 调用 TestHelper.ResetAll() |
+| `script-execute` | 执行重置代码 |
+
+**流程：**
+```
+state-reset strategy="auto"   → 重置状态
+wait-until-condition condition="GameController.Instance != null" → 确认初始化完成
+```
 
 #### 4A: PlayMode 控制
 
@@ -164,6 +200,7 @@ Use this layer for input, interaction, animation/state transitions, UI button fl
 **流程：**
 ```
 editor-application-set-state playMode=true → 进入 PlayMode
+wait-until-condition condition="GameController.Instance != null" → 等待初始化
 [执行验证操作]
 editor-application-set-state playMode=false → 退出 PlayMode
 ```
@@ -186,15 +223,40 @@ editor-application-set-state playMode=false → 退出 PlayMode
 | `record-start/stop` | 录制输入 | 手动复现 bug |
 | `replay-input` | 回放录制 | 确定性复现问题 |
 
-**三消游戏示例：**
-```
-1. 进入 PlayMode
-2. simulate-drag-world startX=100 startY=200 endX=300 endY=200 → 滑动
-3. screenshot-game-view → 检查是否消除
-4. reflection-method-call → 检查分数/状态变化
+**测试后门 API（v2.0 新增）：**
+
+通过 `reflection-method-call` 调用项目的后门方法，极速构造边界场景。详见 [references/test-backdoors.md](references/test-backdoors.md)。
+
+```bash
+# 构造"即将触发连锁爆炸"的边界场景
+reflection-method-call typeName="BoardTestHelper" methodName="SetupChainExplosion"
+
+# 构造"资源极度匮乏"的边界场景
+reflection-method-call typeName="EconomyTestHelper" methodName="SetupResourceScarce"
+
+# 跳过教程直接测试核心逻辑
+reflection-method-call typeName="TestHelper" methodName="SkipTutorial"
 ```
 
-**注意：** 输入模拟工具需安装到项目中（见 SETUP.md Step 2）。
+#### 4B-Post: 等待状态稳定（v2.0 新增）
+
+**交互操作后，必须等待游戏状态稳定再截取结果。禁止写死 Thread.Sleep。**
+
+详细工具文档见 [references/custom-tools-wait.md](references/custom-tools-wait.md)。
+
+| 工具 | 用途 | 典型场景 |
+|------|------|----------|
+| `wait-until-condition` | 轮询 C# 条件直到为 true 或超时 | 等待消除动画完成、等待状态转换 |
+| `wait-for-animation-state` | 等待 Animator 进入指定状态 | 等待攻击动画播放完毕 |
+| `wait-for-frame-count` | 等待 N 帧后继续 | UI 布局重建后等一帧 |
+| `wait-for-stable` | 等待条件满足 + 无新错误日志 | 复杂交互后确认状态稳定 |
+
+**关键流程：**
+```
+simulate-drag-world startX=200 startY=300 endX=400 endY=300  → 模拟滑动
+wait-until-condition condition="Board.Instance.IsAnimating == false" → 等待消除完成
+screenshot-game-view → 此时截图结果才可靠
+```
 
 #### 4C: 证据收集与状态探针
 
@@ -206,8 +268,20 @@ editor-application-set-state playMode=false → 退出 PlayMode
 | `reflection-method-call` | 调用任何 C# 方法检查状态 |
 | `reflection-method-find` | 查找项目中的方法 |
 | `script-execute` | 动态编译执行 C# 代码探针 |
+| `ui-hierarchy-snapshot` | **v2.0** 抓取 UI DOM 树快照做数据断言 |
+| `ui-element-find` | **v2.0** 查找指定 UI 元素状态 |
 
-**验证三消消除后状态：**
+**v2.0 断言升级：截图 + UI 快照组合验证**
+
+| 维度 | 截图验证 | UI 快照断言 |
+|------|----------|------------|
+| 分辨率依赖 | ❌ 是 | ✅ 否 |
+| 帧时机 | ❌ 可能截到过渡帧 | ✅ 数据是即时的 |
+| 大模型判断 | ❌ 容易误判 | ✅ 精确匹配 |
+| 文本内容 | ❌ OCR 可能出错 | ✅ 100% 精确 |
+| 交互状态 | ❌ 看不出 interactable | ✅ 直接可断言 |
+
+**验证三消消除后状态（v2.0 完整流程）：**
 ```csharp
 // reflection-method-call 或 script-execute
 var board = FindObjectOfType<Board>();
@@ -216,16 +290,23 @@ return $"Gems: {board.GemCount}, Score: {board.Score}, Phase: {board.CurrentPhas
 
 ---
 
-**Layer 4 完整流程示例（三消滑动验证）：**
+**Layer 4 完整流程示例（三消滑动验证 — v2.0 增强版）：**
 
 ```
-1. [4A] editor-application-set-state playMode=true → 进入 PlayMode
-2. [4C] screenshot-game-view → 基线截图
-3. [4B] simulate-drag-world startX=100 startY=200 endX=300 endY=200 → 模拟滑动
-4. [4C] screenshot-game-view → 检查消除效果
-5. [4C] console-get-logs → 检查是否有错误
-6. [4C] reflection-method-call → 检查分数是否增加、状态是否正确
-7. [4A] editor-application-set-state playMode=false → 退出 PlayMode
+1. [4A-Pre] state-reset strategy="auto" → 重置游戏状态
+2. [4A-Pre] wait-until-condition condition="GameController.Instance != null" → 确认重置成功
+3. [4A] editor-application-set-state playMode=true → 进入 PlayMode
+4. [4A] wait-until-condition condition="GameController.Instance.CurrentPhase == Phase.Idle" → 等待初始化
+5. [4C] screenshot-game-view → 基线截图
+6. [4C] ui-hierarchy-snapshot format="json" → 基线 UI 快照
+7. [4C] reflection-method-call → 基线状态快照（Score=0, GemCount=64）
+8. [4B] simulate-drag-world startX=100 startY=200 endX=300 endY=200 → 模拟滑动
+9. [4B-Post] wait-until-condition condition="Board.Instance.IsAnimating == false" timeoutSeconds=5 → 等待消除完成
+10. [4C] screenshot-game-view → 结果截图
+11. [4C] ui-hierarchy-snapshot format="json" → 结果 UI 快照（断言 ScoreText 文本）
+12. [4C] reflection-method-call → 结果状态（Score, GemCount, Phase）
+13. [4C] console-get-logs → 检查是否有错误
+14. [4A] editor-application-set-state playMode=false → 退出 PlayMode
 ```
 
 This layer is required for "I played a few times and then it stopped responding" bugs and any interaction-based validation.
@@ -268,7 +349,9 @@ Run the required layers in order. A typical order is:
 1. static review — 静态审查
 2. script-execute or tests-run — 编译或测试
 3. scene/gameobject inspection — 场景/对象检查
-4. PlayMode automation and runtime probes — 运行模式自动化和运行时探针
+4. **state reset (if PlayMode required)** — 状态重置（如需 PlayMode）
+5. PlayMode automation and runtime probes — 运行模式自动化和运行时探针
+6. **wait for state to settle after each interaction** — 交互后等待状态稳定
 
 If a layer fails for environmental reasons, say so explicitly and continue with the remaining non-blocked layers. Do not silently downgrade the verdict.
 
@@ -279,11 +362,13 @@ When PlayMode behavior is wrong, do not stop at "click did nothing." Use Unity-M
 
 - logs — 日志（`console-get-logs`）
 - screenshots — 截图（`screenshot-game-view`）
+- **UI DOM tree — UI DOM 树**（`ui-hierarchy-snapshot`）
 - current controller/state-machine phase — 用 `reflection-method-call` 或 `script-execute` 检查
 - input lock state — 输入锁状态
 - selection state — 选择状态
 - whether colliders, camera, and raycast path line up — 碰撞体/相机/射线检测是否对齐
 - whether an animation callback never returned — 动画回调是否未返回
+- **state snapshots at each phase** — 每个阶段的状态快照（for JSON report）
 
 Use [references/runtime-probes.md](references/runtime-probes.md) for the exact probe ladder.
 
@@ -298,7 +383,10 @@ Always state:
 - what remains blocked — 还有什么被阻塞
 - whether the change is acceptable now, acceptable with known gaps, or not acceptable — 是否可接受
 
-Use [references/output-contract.md](references/output-contract.md).
+**v2.0 双轨输出：**
+- Use [references/output-contract.md](references/output-contract.md) for human-readable Markdown report.
+- Use [references/json-output-schema.md](references/json-output-schema.md) for machine-consumable JSON report.
+- **Both formats should be produced for every validation run.**
 
 ## Unity-MCP Tool Reference
 <!-- Unity-MCP 工具参考 -->
@@ -338,6 +426,46 @@ Use [references/output-contract.md](references/output-contract.md).
 | `tests-run` | 运行测试（EditMode/PlayMode） |
 | `editor-application-get/set-state` | 编辑器状态控制 |
 
+### v2.0 新增：异步等待工具
+<!-- v2.0 新增工具：解决时序不同步问题 -->
+
+| 工具 | 用途 | 详见 |
+|------|------|------|
+| `wait-until-condition` | 轮询 C# 条件直到为 true 或超时 | [custom-tools-wait.md](references/custom-tools-wait.md) |
+| `wait-for-animation-state` | 等待 Animator 进入指定状态 | [custom-tools-wait.md](references/custom-tools-wait.md) |
+| `wait-for-frame-count` | 等待 N 帧后继续 | [custom-tools-wait.md](references/custom-tools-wait.md) |
+| `wait-for-stable` | 等待条件满足 + 无新错误 | [custom-tools-wait.md](references/custom-tools-wait.md) |
+
+### v2.0 新增：UI DOM 树快照工具
+<!-- v2.0 新增工具：解决截图断言盲区 -->
+
+| 工具 | 用途 | 详见 |
+|------|------|------|
+| `ui-hierarchy-snapshot` | 抓取 Canvas UI 树结构快照 | [ui-snapshot-tool.md](references/ui-snapshot-tool.md) |
+| `ui-element-at-position` | 查找指定坐标的 UI 元素 | [ui-snapshot-tool.md](references/ui-snapshot-tool.md) |
+| `ui-element-find` | 按名称查找 UI 元素详细状态 | [ui-snapshot-tool.md](references/ui-snapshot-tool.md) |
+
+### v2.0 新增：状态重置工具
+<!-- v2.0 新增工具：消除测试间状态污染 -->
+
+| 工具 | 用途 | 详见 |
+|------|------|------|
+| `state-reset` | 重置游戏到干净状态 | [state-reset.md](references/state-reset.md) |
+
+### v2.0 新增：测试后门 API
+<!-- v2.0 新增：通过 reflection-method-call 调用项目后门方法 -->
+
+不是独立 MCP 工具，而是项目中的 C# 方法，通过 `reflection-method-call` 调用。详见 [test-backdoors.md](references/test-backdoors.md)。
+
+```bash
+# 常用后门方法
+reflection-method-call typeName="TestHelper" methodName="ResetAll"
+reflection-method-call typeName="BoardTestHelper" methodName="SetupChainExplosion"
+reflection-method-call typeName="EconomyTestHelper" methodName="SetupResourceScarce"
+reflection-method-call typeName="TestHelper" methodName="SkipTutorial"
+reflection-method-call typeName="UITestHelper" methodName="ForceGameOver"
+```
+
 ## Project-Specific Acceptance Focus
 <!-- 项目特定验收重点 -->
 
@@ -352,6 +480,8 @@ This skill supports project-specific configuration via `validation-config.yaml`.
    - **key_classes**: Core classes for runtime probing via reflection
    - **file_patterns**: Project-specific path patterns for routing hints
    - **custom_tools**: Whether input simulation tools are installed
+   - **state_reset**: v2.0 — State reset strategy for test isolation
+   - **test_backdoors**: v2.0 — Available test backdoor API methods
 
 ### Core Invariants to Guard
 
@@ -363,6 +493,7 @@ Define invariants your project must protect. Examples:
 | View never mutates model directly | Static review: look for Model writes in View |
 | Controller always returns to idle | `reflection-method-call` to check CurrentPhase |
 | Scene wiring matches script assumptions | `assets-get-data`, `gameobject-component-get` |
+| State resets between test cases | `state-reset` + `wait-until-condition` |
 
 ### Key Classes to Probe
 
@@ -387,6 +518,9 @@ If you've installed the custom input simulation tools from `references/custom-to
 ```yaml
 custom_tools:
   input_simulation_installed: true
+  wait_tools_installed: true
+  ui_snapshot_installed: true
+  state_reset_installed: true
 ```
 
 If no config file exists, the validator will use generic heuristics and prompt for clarification when needed.
@@ -396,12 +530,16 @@ If no config file exists, the validator will use generic heuristics and prompt f
 
 When a bug appears only after repeated manual play:
 
-1. Enter PlayMode with `editor-application-set-state` — 用 editor-application-set-state 进入 PlayMode
-2. Capture baseline screenshot — 捕获基线截图
-3. Interact or replay scenario — 交互或回放场景
-4. Capture logs and screenshot when bug appears — bug出现时捕获日志和截图
-5. Use `reflection-method-call` or `script-execute` to inspect runtime state — 用反射工具检查运行时状态
-6. Report the stuck state, not just the visible symptom — 报告卡住的状态，不只是可见症状
+1. **Reset state** — 用 `state-reset` 或 `reflection-method-call` 调用 ResetAll
+2. Enter PlayMode with `editor-application-set-state` — 用 editor-application-set-state 进入 PlayMode
+3. Wait for initialization — 用 `wait-until-condition` 等待初始化完成
+4. Capture baseline screenshot + UI snapshot — 捕获基线截图 + UI 快照
+5. Interact or replay scenario — 交互或回放场景
+6. **Wait for state to settle** — 用 `wait-until-condition` 等待状态稳定
+7. Capture logs, screenshot, UI snapshot, and runtime state when bug appears — bug出现时捕获完整证据
+8. Use `reflection-method-call` or `script-execute` to inspect runtime state — 用反射工具检查运行时状态
+9. Report the stuck state, not just the visible symptom — 报告卡住的状态，不只是可见症状
+10. **Output both Markdown and JSON reports** — 输出 Markdown + JSON 双轨报告
 
 If Unity-MCP is disconnected or Unity Editor is not open, explicitly report that the runtime route is incomplete.
 
@@ -430,12 +568,20 @@ var state = animator.GetCurrentAnimatorStateInfo(0);
 return $"Animation: {state.nameHash}, Time: {state.normalizedTime}";
 ```
 
-### Check selection state
-<!-- 检查选择状态 -->
+### Check UI state with DOM tree snapshot (v2.0)
+<!-- 用 UI DOM 树快照检查 UI 状态 -->
 
-```csharp
-var selected = Selection.activeGameObject;
-return selected != null ? $"Selected: {selected.name}" : "Nothing selected";
+```bash
+# 抓取完整 UI 树
+ui-hierarchy-snapshot format="json"
+
+# 查找特定元素
+ui-element-find name="ScoreText"
+# 期望输出：type=Text, text="Score: 30", active=true
+
+# 查找指定坐标下的元素
+ui-element-at-position x=150 y=100
+# 用于验证点击目标是否正确
 ```
 
 ## Do Not Do This
@@ -446,16 +592,27 @@ return selected != null ? $"Selected: {selected.name}" : "Nothing selected";
 - Do not mark a feature "verified" because it compiles. — 编译通过不等于验证通过
 - Do not replace required PlayMode validation with manual guesswork when Unity-MCP can probe. — Unity-MCP能探针时不要用手工猜测替代
 - Do not hide blocked Unity-MCP steps inside a generic "manual verification needed" sentence. Name the exact missing step. — 不要用"需要手工验证"掩盖阻塞步骤，要明确说缺什么
+- **Do not use Thread.Sleep or fixed waits after interactions.** — 交互后禁止写死等待时间，必须用 wait-until-condition
+- **Do not skip state reset between PlayMode test cases.** — PlayMode 测试用例之间不能跳过状态重置
+- **Do not rely solely on screenshots for UI verification.** — UI 验证不能只靠截图，必须配合 ui-hierarchy-snapshot
+- **Do not output only Markdown reports.** — 验证报告必须同时输出 Markdown（人）和 JSON（机器）格式
 
 ## Output Expectation
 
-Use the structure in [references/output-contract.md](references/output-contract.md). Keep the report short but decisive. The user should be able to see:
+Use the structure in [references/output-contract.md](references/output-contract.md) for human-readable Markdown and [references/json-output-schema.md](references/json-output-schema.md) for machine-consumable JSON. Keep the report short but decisive. The user should be able to see:
 
 - why this route was chosen — 为什么选这个路由
 - what passed — 通过了什么
 - what failed — 失败了什么
 - what still needs Unity-MCP work — 还需要什么 Unity-MCP 工作
 - the next most useful command or action — 下一步最有用的命令或操作
+
+**v2.0 双轨输出要求：**
+```
+每次验证输出两份：
+├── validation-report.md     ← 人类消费（开发者阅读）
+└── validation-report.json   ← 机器消费（Codex 自动审查）
+```
 
 ## Comparison: Unity-MCP vs uloop-*
 <!-- 对比：Unity-MCP 与 uloop-* -->
@@ -476,12 +633,18 @@ Use the structure in [references/output-contract.md](references/output-contract.
 | 运行时嵌入 | 无 | 支持 ✅ |
 | 工具数量 | ~10 | 100+ ✅ |
 | 自定义工具 | 需改 skill | 单行代码添加 ✅ |
+| **异步等待** | 无 | `wait-until-condition` ✅ v2.0 |
+| **UI 快照** | 无 | `ui-hierarchy-snapshot` ✅ v2.0 |
+| **状态重置** | 无 | `state-reset` ✅ v2.0 |
+| **JSON 输出** | 无 | JSON Schema ✅ v2.0 |
+| **测试后门** | 无 | `reflection-method-call` ✅ v2.0 |
 
 **Unity-MCP 更强大：**
 - 反射系统可查找/调用任何方法
 - 自定义 Tool 只需一行代码
 - 运行时可在编译后的游戏内使用
 - 工具更丰富，覆盖更全面
+- v2.0 解决了时序同步、状态污染、断言盲区三大硬伤
 
 **uloop-* 更完整（当前）：**
 - 内置输入模拟和录制回放

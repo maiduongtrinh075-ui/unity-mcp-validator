@@ -67,13 +67,18 @@ Before routing, answer these questions:
 |-------|-------------|-----------------|------|
 | `Static` | 读diff，检查代码路径，审查不变量 | 无需 MCP | 最低 |
 | `EditMode` | 运行确定性测试或添加最小测试 | `tests-run` | 低 |
-| `Editor` | 编译、层级、预制体、检视面板、日志、序列化连线 | `script-execute`, `scene-*`, `gameobject-*`, `assets-*`, `console-get-logs` | 中 |
-| `PlayMode` | Layer 4 包含三个子流程：<br>**4A**: 进入/退出 PlayMode<br>**4B**: 输入模拟（点击、滑动、拖拽、按键）<br>**4C**: 证据收集（截图、日志、状态探针） | **4A**: `editor-application-*`<br>**4B**: `simulate-*`, `record-*`, `replay-*`<br>**4C**: `screenshot-*`, `reflection-*`, `script-execute`, `console-get-logs` | 高 |
+| `Editor` | 编译、层级、预制体、检视面板、日志、序列化连线、**UI DOM 树检查** | `script-execute`, `scene-*`, `gameobject-*`, `assets-*`, `console-get-logs`, **`ui-hierarchy-snapshot`**, **`ui-element-find`** | 中 |
+| `PlayMode` | Layer 4 包含三个子流程 + 前置/后置步骤：<br>**4A-Pre**: 状态重置<br>**4A**: 进入/退出 PlayMode<br>**4B**: 输入模拟 + 测试后门<br>**4B-Post**: 等待状态稳定<br>**4C**: 证据收集（截图 + UI 快照 + 状态探针） | **4A-Pre**: `state-reset`, `reflection-method-call`<br>**4A**: `editor-application-*`<br>**4B**: `simulate-*`, `record-*`, `replay-*`, `reflection-method-call` (后门)<br>**4B-Post**: `wait-until-condition`, `wait-for-animation-state`, `wait-for-stable`<br>**4C**: `screenshot-*`, `ui-hierarchy-snapshot`, `reflection-*`, `script-execute`, `console-get-logs` | 高 |
 
-**重要：** 输入/交互类验证必须包含 Layer 4B（输入模拟）。例如：
-- 三消游戏滑动消除 → 需要 `simulate-drag-world`
-- 按钮点击 → 需要 `simulate-click-ui`
-- 键盘快捷键 → 需要 `simulate-key-press`
+**重要规则（v2.0）：**
+
+1. 输入/交互类验证必须包含 Layer 4B（输入模拟）。例如：
+   - 三消游戏滑动消除 → 需要 `simulate-drag-world`
+   - 按钮点击 → 需要 `simulate-click-ui`
+   - 键盘快捷键 → 需要 `simulate-key-press`
+2. **交互操作后必须使用 wait-until-condition 等待状态稳定**，禁止写死 Thread.Sleep
+3. **多个 PlayMode 测试用例之间必须执行状态重置**（4A-Pre）
+4. **UI 验证必须配合 ui-hierarchy-snapshot 做数据断言**，不能只靠截图
 
 ## Routing Table
 <!-- 路由表：变更类型 → 必需层级 → Unity-MCP工具 -->
@@ -81,14 +86,14 @@ Before routing, answer these questions:
 | Change class | Common signals | Required layers | Unity-MCP tools focus |
 | --- | --- | --- | --- |
 | **Model / rules** 模型/规则 | model classes, business logic, scoring, calculation, rules | Static, EditMode | `tests-run` 确定性规则正确性，边界情况 |
-| **Controller / state machine** 控制器/状态机 | controller, state machine, phase changes, event flow | Static, EditMode, PlayMode (4A+4C) | `tests-run`, `reflection-method-call` 检查状态转换，回调，解锁时机 |
-| **Input / interaction** 输入/交互 | click, drag, touch, selection, input handling, **滑动消除** | Static, Editor, **PlayMode (4A+4B+4C)** | **[4B] `simulate-click-*`, `simulate-drag-*`, `replay-input`** + [4C] `screenshot-*`, `reflection-method-call` **三消滑动验证：simulate-drag-world → screenshot → reflection-method-call 检查分数** |
-| **Animation / input lock** 动画/输入锁 | tween, coroutine, async sequence, lock/unlock timing | Static, PlayMode (4A+4C) | `editor-application-set-state`, `reflection-method-call`, `screenshot-*` 动画完成，锁释放，卡住阶段 |
-| **Scene / prefab / inspector wiring** 场景/预制体/连线 | `Assets/Scenes`, `Assets/Prefabs`, serialized references | Static, Editor | `scene-get-data`, `gameobject-find`, `assets-get-data`, `gameobject-component-get` 缺失对象，缺失组件，空字段，错误引用 |
-| **UI / HUD** 界面 | buttons, labels, UI canvas, menus | Static, Editor, **PlayMode (4A+4B+4C)** | **[4B] `simulate-click-ui`** + [4C] `screenshot-game-view`, `reflection-method-call` UI按钮点击验证 |
-| **Project settings / package backend** 项目设置/包后端 | `ProjectSettings`, `Packages`, Input System, render pipeline | Static, Editor, PlayMode (4A+4C) | `package-list`, `script-execute`, `tests-run` 编译，后端兼容性，运行时输入路径 |
-| **PlayMode-only runtime bug** 仅运行时bug | "works for a while", "after some actions", "freezes", "no response" | Static, Editor, PlayMode (4A+4B+4C) | [4B] `record-*`, `replay-input` 复现 + [4C] `console-get-logs`, `reflection-method-call`, `screenshot-*` 日志，运行时状态探针 |
-| **Pre-acceptance sweep** 预验收检查 | "ready to accept", "before merge", "full verification" | Static, EditMode, Editor, **PlayMode (4A+4B+4C)** | 全流程验证，包含输入模拟冒烟测试 |
+| **Controller / state machine** 控制器/状态机 | controller, state machine, phase changes, event flow | Static, EditMode, PlayMode (4A-Pre+4A+4C) | `tests-run`, `state-reset`, `wait-until-condition`, `reflection-method-call` 检查状态转换，回调，解锁时机 |
+| **Input / interaction** 输入/交互 | click, drag, touch, selection, input handling, **滑动消除** | Static, Editor, **PlayMode (4A-Pre+4A+4B+4B-Post+4C)** | **[4A-Pre] `state-reset`** + **[4B] `simulate-click-*`, `simulate-drag-*`, `replay-input`** + **[4B-Post] `wait-until-condition`** + [4C] `screenshot-*`, `ui-hierarchy-snapshot`, `reflection-method-call` **三消滑动验证：state-reset → simulate-drag-world → wait-until-condition → screenshot + ui-snapshot → reflection-method-call 检查分数** |
+| **Animation / input lock** 动画/输入锁 | tween, coroutine, async sequence, lock/unlock timing | Static, PlayMode (4A-Pre+4A+4B-Post+4C) | `state-reset`, `editor-application-set-state`, `wait-for-animation-state`, `wait-until-condition`, `reflection-method-call`, `screenshot-*` 动画完成，锁释放，卡住阶段 |
+| **Scene / prefab / inspector wiring** 场景/预制体/连线 | `Assets/Scenes`, `Assets/Prefabs`, serialized references | Static, Editor | `scene-get-data`, `gameobject-find`, `assets-get-data`, `gameobject-component-get`, `ui-hierarchy-snapshot` 缺失对象，缺失组件，空字段，错误引用 |
+| **UI / HUD** 界面 | buttons, labels, UI canvas, menus | Static, Editor, **PlayMode (4A-Pre+4A+4B+4B-Post+4C)** | **[4B] `simulate-click-ui`** + **[4B-Post] `wait-for-frame-count`** + [4C] `screenshot-game-view`, **`ui-hierarchy-snapshot`**, `reflection-method-call` UI按钮点击验证 + UI DOM 数据断言 |
+| **Project settings / package backend** 项目设置/包后端 | `ProjectSettings`, `Packages`, Input System, render pipeline | Static, Editor, PlayMode (4A-Pre+4A+4C) | `state-reset`, `package-list`, `script-execute`, `tests-run` 编译，后端兼容性，运行时输入路径 |
+| **PlayMode-only runtime bug** 仅运行时bug | "works for a while", "after some actions", "freezes", "no response" | Static, Editor, PlayMode (4A-Pre+4A+4B+4B-Post+4C) | **[4A-Pre] `state-reset`** + [4B] `record-*`, `replay-input` 复现 + **[4B-Post] `wait-for-stable`** + [4C] `console-get-logs`, `reflection-method-call`, `screenshot-*`, `ui-hierarchy-snapshot` 日志，运行时状态探针，UI 状态断言 |
+| **Pre-acceptance sweep** 预验收检查 | "ready to accept", "before merge", "full verification" | Static, EditMode, Editor, **PlayMode (4A-Pre+4A+4B+4B-Post+4C)** | 全流程验证，包含状态重置、输入模拟、等待稳定、UI 快照断言 |
 
 ## File Path Hints
 <!-- 文件路径提示：根据路径推断变更类型 -->
@@ -180,6 +185,8 @@ Editor inspection is mandatory when:
 | 查找特定对象 | `gameobject-find` |
 | 检查组件状态 | `gameobject-component-get` |
 | 检查预制体引用 | `assets-get-data` |
+| **检查 UI 元素结构** | **`ui-hierarchy-snapshot`** |
+| **查找特定 UI 元素** | **`ui-element-find`** |
 
 ### For runtime probing
 <!-- 运行时探针 -->
@@ -187,10 +194,25 @@ Editor inspection is mandatory when:
 | 场景 | 推荐工具 |
 |------|----------|
 | 进入 PlayMode | `editor-application-set-state playMode=true` |
+| **重置游戏状态** | **`state-reset`** 或 `reflection-method-call` (TestHelper.ResetAll) |
+| **等待状态稳定** | **`wait-until-condition`** |
+| **等待动画完成** | **`wait-for-animation-state`** |
+| **等待 UI 布局重建** | **`wait-for-frame-count frameCount=2`** |
 | 获取日志 | `console-get-logs` |
 | 截图 | `screenshot-game-view` |
+| **UI DOM 树快照** | **`ui-hierarchy-snapshot`** |
 | 检查运行时状态 | `reflection-method-call` 或 `script-execute` |
 | 调用任意方法 | `reflection-method-call` |
+| **构造边界测试场景** | **`reflection-method-call`** (调用 TestHelper 后门方法) |
+
+### For state isolation (v2.0)
+<!-- 状态隔离 -->
+
+| 场景 | 推荐工具 |
+|------|----------|
+| 测试前重置状态 | `state-reset strategy="auto"` |
+| 确认重置成功 | `wait-until-condition condition="GameController.Instance != null"` |
+| 测试间清理 | `reflection-method-call` (TestHelper.ResetAll) |
 
 ## Review Prompts
 <!-- 审查提示：路由时要问的问题 -->

@@ -3,6 +3,11 @@
 
 Use this structure when reporting validation work driven by this skill.
 
+**v2.0 双轨输出要求：**
+- 本文档定义人类可读的 Markdown 报告格式
+- 机器可消费的 JSON 报告格式见 [json-output-schema.md](json-output-schema.md)
+- **每次验证必须同时输出两种格式**
+
 ## Required Sections
 <!-- 必需章节 -->
 
@@ -28,6 +33,13 @@ List each layer that actually ran:
 For each layer, say whether it ran, was skipped by route, or was blocked by environment.
 <!-- 对每个层级，说明是运行了、被路由跳过、还是被环境阻塞 -->
 
+If PlayMode ran, also specify which sub-layers executed:
+- **4A-Pre**: 状态重置 — 是否执行
+- **4A**: PlayMode 进入/退出 — 是否执行
+- **4B**: 输入模拟 — 是否执行
+- **4B-Post**: 等待状态稳定 — 是否执行
+- **4C**: 证据收集 — 是否执行
+
 ### 3. Unity-MCP Tools Used
 <!-- 3. Unity-MCP 工具使用 -->
 
@@ -41,6 +53,9 @@ Example:
 - reflection-method-call: checked controller state
 - screenshot-game-view: captured before/after
 - console-get-logs: no errors
+- wait-until-condition: condition met after 0.3s
+- ui-hierarchy-snapshot: captured UI tree
+- state-reset: game state reset successfully
 ```
 
 ### 4. Evidence
@@ -51,8 +66,11 @@ Summarize the hard evidence:
 - tests and their result — 测试及其结果
 - hierarchy or prefab findings — 层级或预制体发现
 - screenshot observations — 截图观察
+- **UI DOM tree snapshots and element assertions** — UI DOM 树快照和元素断言
 - log findings — 日志发现
 - runtime probe findings — 运行时探针发现
+- **state snapshots at each validation phase** — 每个验证阶段的状态快照
+- **wait condition results (met/timeout)** — 等待条件结果（满足/超时）
 
 ### 5. Findings
 <!-- 5. 发现 -->
@@ -63,6 +81,8 @@ Call out the actual issue or confirmed pass conditions. Prefer precise statement
 - controller never returned to idle state — 控制器从未返回空闲状态
 - prefab was missing required component — 预制体缺失必需组件
 - route passed with no logs and expected state transitions — 路由通过，无日志，状态转换符合预期
+- **UI element 'ScoreText' text value matched expected "30"** — UI 元素 'ScoreText' 文本值匹配预期 "30"
+- **wait-until-condition timed out: Board.Instance.IsAnimating never became false** — 等待超时：Board.Instance.IsAnimating 始终未变为 false
 
 ### 6. Unity-MCP Status
 <!-- 6. Unity-MCP 状态 -->
@@ -72,6 +92,7 @@ Separate these clearly:
 - Unity-MCP work completed — Unity-MCP 已完成的工作
 - Unity-MCP work not completed — Unity-MCP 未完成的工作
 - Unity-MCP connection status — Unity-MCP 连接状态（connected/disconnected/unavailable）
+- **Custom tools availability** — 自定义工具可用性（wait/ui-snapshot/state-reset: yes/no）
 
 Do not merge them into one vague sentence.
 <!-- 不要合并成一句模糊的话 -->
@@ -101,14 +122,38 @@ Give the single most useful next Unity-MCP command or manual action.
 If any validation layers could not run, list:
 - Which layer was blocked
 - The exact blocker (e.g., "Unity Editor not connected", "Compilation failed")
-- Whether custom tools were unavailable (e.g., "Input simulation tools not installed")
+- Whether custom tools were unavailable (e.g., "Input simulation tools not installed", "wait-until-condition not available")
 
 ### 10. Troubleshooting Reference
 <!-- 10. 故障排除参考 -->
 
 If issues occurred, reference [troubleshooting.md](troubleshooting.md) for relevant solutions.
 
-## Short Example
+### 11. JSON Report (v2.0)
+<!-- 11. JSON 报告 -->
+
+Every Markdown report must be accompanied by a machine-consumable JSON report.
+See [json-output-schema.md](json-output-schema.md) for the complete schema.
+
+**Quick reference — JSON output structure:**
+```json
+{
+  "schema_version": "2.0",
+  "validation_id": "uuid",
+  "route": { "change_class": "...", "required_layers": [...] },
+  "layers_run": { ... },
+  "tools_used": [ ... ],
+  "evidence": { "screenshots": [...], "ui_snapshots": [...], "state_snapshots": [...] },
+  "findings": [ ... ],
+  "verdict": { "status": "...", "reason": "..." },
+  "next_action": "...",
+  "blockers": [ ... ]
+}
+```
+
+---
+
+## Short Example (v2.0 Enhanced)
 <!-- 简短示例 -->
 
 ```text
@@ -122,14 +167,26 @@ Layers run:
 - Static review: ran — 静态审查：已运行
 - EditMode: skipped by route — 编辑模式测试：被路由跳过
 - Unity Editor inspection: ran — Unity编辑器检查：已运行
-- PlayMode automation: ran — PlayMode自动化：已运行
+- PlayMode automation: ran (4A-Pre+4A+4B+4B-Post+4C) — PlayMode自动化：已运行
+
+PlayMode sub-layers:
+- 4A-Pre (state reset): ran — 状态重置：已运行
+- 4A (enter/exit): ran — 进入/退出：已运行
+- 4B (input sim): ran — 输入模拟：已运行
+- 4B-Post (wait): ran — 等待稳定：已运行
+- 4C (evidence): ran — 证据收集：已运行
 
 Unity-MCP tools used:
 Unity-MCP工具使用：
 - script-execute: compiled successfully — 编译成功
 - scene-get-data: hierarchy valid — 层级有效
+- state-reset: game state reset successfully — 游戏状态重置成功
 - editor-application-set-state: entered PlayMode — 进入PlayMode
+- wait-until-condition: GameController.Instance != null met after 0.2s — 等待初始化完成
+- simulate-drag-world: sliding simulation completed — 滑动模拟完成
+- wait-until-condition: Board.Instance.IsAnimating == false met after 0.8s — 等待消除动画完成
 - screenshot-game-view: captured before/after — 捕获前后截图
+- ui-hierarchy-snapshot: ScoreText text="30" (expected) — UI快照断言通过
 - reflection-method-call: controller.CurrentPhase = 'Processing' — 控制器状态为Processing
 - console-get-logs: no errors — 无错误日志
 
@@ -137,22 +194,29 @@ Evidence:
 证据：
 - Compile passed. — 编译通过。
 - Scene wiring was valid. — 场景连线有效。
+- State reset confirmed clean start. — 状态重置确认干净起点。
 - After the third action, input lock remained true. — 第三次操作后，输入锁保持为 true。
+- UI snapshot: ScoreText showed "30" (correct). — UI快照：ScoreText 显示 "30"（正确）。
+- Wait condition: Board.IsAnimating became false (animation completed). — 等待条件：Board.IsAnimating 变为 false（动画完成）。
 - Logs were clean. — 日志干净。
 
 Findings:
 发现：
 - Action completed visually, but the controller never released input.
 - 操作视觉上完成，但控制器从未释放输入。
+- UI snapshot confirmed score updated correctly, but interaction state stuck.
+- UI 快照确认分数更新正确，但交互状态卡住。
 
 Unity-MCP status:
 Unity-MCP状态：
-- Completed: compile, scene inspection, PlayMode repro, runtime state probe
-- 已完成：编译、场景检查、PlayMode复现、运行时状态探针
+- Completed: compile, scene inspection, state reset, PlayMode repro, input sim, wait, UI snapshot, runtime state probe
+- 已完成：编译、场景检查、状态重置、PlayMode复现、输入模拟、等待、UI快照、运行时状态探针
 - Not completed: none
 - 未完成：无
 - Connection: connected
 - 连接状态：已连接
+- Custom tools: wait=yes, ui-snapshot=yes, state-reset=yes
+- 自定义工具：等待=是，UI快照=是，状态重置=是
 
 Verdict: Not acceptable yet.
 结论：尚不可接受。
@@ -169,4 +233,7 @@ Blockers:
 
 Troubleshooting reference: N/A
 故障排除参考：不适用
+
+JSON report: validation-report.json attached (see json-output-schema.md)
+JSON报告：已附验证报告.json（参见 json-output-schema.md）
 ```
