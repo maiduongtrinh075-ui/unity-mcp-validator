@@ -225,6 +225,32 @@ output:
   include_ui_snapshots: true
 
 # ============================================================
+# VL SERVICE (v2.2 新增)
+# Visual Language model for screenshot analysis.
+# ============================================================
+vl_service:
+  # Enable VL screenshot analysis
+  enabled: false
+
+  # Ollama API URL (局域网地址)
+  url: "http://192.168.0.103:11434"
+
+  # VL model name
+  model: "huihui_ai/qwen3-vl-abliterated:8b-instruct"
+
+  # Request timeout in seconds
+  timeout_seconds: 30
+
+  # Use VL for screenshot analysis in Layer 4C
+  use_for_screenshot_analysis: false
+
+  # Prompt templates for common checks
+  prompt_templates:
+    ui_visible: "Is the UI element '{element}' visible? Answer YES or NO."
+    score_check: "What is the current score? Return only the number."
+    game_phase: "What game phase is shown? (menu/playing/paused/game-over)"
+
+# ============================================================
 # ACCEPTANCE THRESHOLDS
 # ============================================================
 acceptance:

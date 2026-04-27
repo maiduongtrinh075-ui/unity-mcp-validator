@@ -562,6 +562,7 @@ After setup, verify each component works:
 | **UI snapshot** | **`ui-hierarchy-snapshot format="summary"`** | **Canvas hierarchy** |
 | **State reset** | **`state-reset strategy="auto"`** | **State reset success** |
 | **Test backdoor** | **`reflection-method-call typeName="TestHelper" methodName="ResetAll"`** | **Method called** |
+| **VL screenshot (v2.2)** | **`vl-config` + `screenshot-analyze-vl`** | **VL response** |
 
 ---
 
@@ -575,6 +576,9 @@ After setup, verify each component works:
 | **Wait tools missing** | **Tool_WaitUntil.cs?** | **Copy from custom-tools-wait.md** |
 | **UI snapshot missing** | **Tool_UISnapshot.cs?** | **Copy from ui-snapshot-tool.md** |
 | **State reset failing** | **TestHelper.cs configured?** | **Customize ResetAll() for project** |
+| **VL tool missing** | **Tool_ScreenshotVL.cs?** | **Copy from custom-tools-screenshot-vl.md** |
+| **VL connection failed** | **Ollama running?** | **Start Ollama, check URL** |
+| **VL model error** | **Model name correct?** | **Use full name: huihui_ai/qwen3-vl-abliterated:8b-instruct** |
 | Input System errors | Package installed? | Install Input System package |
 | Compilation errors | Unity Console | Fix script errors first |
 | Port conflict | MCP config port | Change port number |

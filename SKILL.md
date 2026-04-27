@@ -450,6 +450,41 @@ Always state:
 |------|------|------|
 | `state-reset` | 重置游戏到干净状态 | [state-reset.md](references/state-reset.md) |
 
+### v2.2 新增：VL 截图分析工具
+<!-- v2.2 新增：集成 Ollama VL 模型进行截图识别 -->
+
+集成 Ollama VL 模型进行截图识别，实现自动化视觉验证。
+
+| 工具 | 用途 | 详见 |
+|------|------|------|
+| `screenshot-analyze-vl` | 截图 + VL 分析 | [custom-tools-screenshot-vl.md](references/custom-tools-screenshot-vl.md) |
+| `ui-check-vl` | 快速检查 UI 元素状态 | [custom-tools-screenshot-vl.md](references/custom-tools-screenshot-vl.md) |
+| `game-state-vl` | 检查游戏状态（分数、阶段） | [custom-tools-screenshot-vl.md](references/custom-tools-screenshot-vl.md) |
+| `screenshot-compare-vl` | 对比两张截图变化 | [custom-tools-screenshot-vl.md](references/custom-tools-screenshot-vl.md) |
+| `vl-config` | 配置 Ollama URL 和模型 | [custom-tools-screenshot-vl.md](references/custom-tools-screenshot-vl.md) |
+
+**默认配置：**
+```yaml
+vl_service:
+  url: "http://192.168.0.103:11434"
+  model: "huihui_ai/qwen3-vl-abliterated:8b-instruct"
+```
+
+**使用示例：**
+```bash
+# 配置 VL 服务
+vl-config url="http://192.168.0.103:11434" model="huihui_ai/qwen3-vl-abliterated:8b-instruct"
+
+# 截图分析
+screenshot-analyze-vl prompt="描述当前游戏状态"
+
+# 快速 UI 检查
+ui-check-vl elementName="StartButton" checkType="visible"
+
+# 游戏状态检查
+game-state-vl checkType="score"
+```
+
 ### v2.0 新增：测试后门 API
 <!-- v2.0 新增：通过 reflection-method-call 调用项目后门方法 -->
 
