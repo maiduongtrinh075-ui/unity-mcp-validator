@@ -32,9 +32,31 @@ Instead of ad-hoc "run some tests" behavior, this skill provides systematic vali
 | **100+ tools** | Assets, scenes, GameObjects, components, materials, prefabs, packages, tests, screenshots, logs |
 | **Custom tools** | Add new tools with single line of code |
 
-## Installation
+## Quick Start
 
-**See [SETUP.md](SETUP.md) for complete setup instructions.**
+### 1. Install as Claude Code Skill
+
+```bash
+# Clone the repo
+git clone https://github.com/maiduongtrinh075-ui/unity-mcp-validator.git
+
+# Copy (or symlink) into your Claude Code skills directory
+cp -r unity-mcp-validator ~/.claude/skills/unity-mcp-validator
+# Or for project-level: cp -r unity-mcp-validator .claude/skills/unity-mcp-validator
+```
+
+After cloning, Claude Code will automatically load `SKILL.md` when this skill is triggered.
+
+### 2. Sync Updates
+
+```bash
+# Pull latest changes from upstream
+cd ~/.claude/skills/unity-mcp-validator && git pull origin master
+```
+
+### 3. Full Setup
+
+**See [SETUP.md](SETUP.md) for complete setup instructions (Unity-MCP plugin, custom tools, config).**
 
 ### Quick Setup Checklist
 

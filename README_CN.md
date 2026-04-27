@@ -32,9 +32,31 @@
 | **100+ 工具** | 资源、场景、GameObject、组件、材质、预制体、包、测试、截图、日志 |
 | **自定义工具** | 单行代码即可添加新工具 |
 
-## 安装
+## 快速开始
 
-**完整安装说明见 [SETUP.md](SETUP.md)**
+### 1. 安装为 Claude Code Skill
+
+```bash
+# 克隆仓库
+git clone https://github.com/maiduongtrinh075-ui/unity-mcp-validator.git
+
+# 复制（或软链接）到 Claude Code skills 目录
+cp -r unity-mcp-validator ~/.claude/skills/unity-mcp-validator
+# 项目级安装：cp -r unity-mcp-validator .claude/skills/unity-mcp-validator
+```
+
+克隆后，Claude Code 会在触发此 Skill 时自动加载 `SKILL.md`。
+
+### 2. 同步更新
+
+```bash
+# 拉取最新版本
+cd ~/.claude/skills/unity-mcp-validator && git pull origin master
+```
+
+### 3. 完整安装
+
+**完整安装说明见 [SETUP.md](SETUP.md)（Unity-MCP 插件、自定义工具、配置文件）**
 
 ### 快速安装清单
 
