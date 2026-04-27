@@ -5,6 +5,40 @@ All notable changes to this skill will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-04-27
+
+### Added — v2.1: Enhanced Input Tools (参考 unity-cli-loop)
+
+**Problem: UI Drag 不稳定、找不到 draggable 元素**
+
+- `references/custom-tools-input.md` — 大幅增强输入模拟工具
+  - **NEW: `ui-find-interactive-elements`** — 查找所有可交互 UI 元素，返回 SimX/SimY 坐标（解决坐标不准问题）
+  - **NEW: `ui-find-element-by-name`** — 按名称查找 UI 元素坐标
+  - **NEW: `simulate-drag-ui-start/move/end`** — 分步 Drag API（解决一次性拖拽不稳定问题）
+  - **NEW: `simulate-long-press-ui`** — 长按 UI 元素（不触发 click）
+  - **NEW: `simulate-mouse-scroll`** — 鼠标滚轮模拟
+  - **NEW: `simulate-mouse-delta`** — FPS 相机控制（鼠标增量）
+  - **NEW: `simulate-long-press-world`** — 世界空间长按（挖掘/蓄力）
+
+**Enhanced Error Handling:**
+- 检查 EventSystem 是否存在
+- 检查元素是否可拖拽（IDragHandler）
+- 检查元素是否可点击（IPointerClickHandler）
+- 检查 Button 是否 interactable
+
+**Recommended Workflow:**
+```
+# 先获取坐标，再操作
+ui-find-interactive-elements → 获取 SimX/SimY
+simulate-drag-ui-start x=<SimX> y=<SimY>
+simulate-drag-ui-move x=...
+simulate-drag-ui-end x=...
+```
+
+### Fixed
+
+- SKILL.md — 删除重复的 `## Quick Start` 标题，修正 Validation Layers 结构
+
 ## [2.0.0] - 2026-04-27
 
 ### Added — v2.0 Core: Solving Three Hard Problems
