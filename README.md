@@ -12,14 +12,16 @@ Instead of ad-hoc "run some tests" behavior, this skill provides systematic vali
 4. **Probe** runtime bugs with reflection and dynamic code execution
 5. **Report** with explicit verdicts and blockers (Markdown + JSON dual output)
 
-## v2.0 Highlights
+## v2.1 Highlights
 
 | Feature | Problem Solved | Solution |
 |---------|---------------|----------|
+| **UI element finder** | Cannot find draggable, wrong coordinates | `ui-find-interactive-elements` — get SimX/SimY for all clickable/draggable UI |
+| **Split drag API** | One-shot drag is unstable | `simulate-drag-ui-start/move/end` — step-by-step drag |
+| **Long press** | Hold button for duration | `simulate-long-press-ui` — press without click event |
 | **Async wait tools** | Timing sync — Thread.Sleep is flaky | `wait-until-condition`, `wait-for-animation-state`, etc. |
 | **UI DOM snapshot** | Screenshot assertion blind spots | `ui-hierarchy-snapshot` — data-level UI assertions |
 | **State reset** | Test case state contamination | `state-reset` — clean state between test cases |
-| **Test backdoor API** | Hard to construct edge cases | `reflection-method-call` to TestHelper methods |
 | **JSON output** | No machine-consumable report | Structured JSON alongside Markdown report |
 
 ## Unity-MCP Advantages
@@ -212,7 +214,7 @@ See [references/troubleshooting.md](references/troubleshooting.md) for runtime i
 
 ## Version
 
-Current version: **2.0.0**
+Current version: **2.1.0**
 
 See [CHANGELOG.md](CHANGELOG.md) for version history.
 
