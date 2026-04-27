@@ -1,7 +1,13 @@
-# Unity-MCP Custom Tools: Input Simulation & Recording
+# Unity-MCP Custom Tools: Input Simulation & Recording (v2.1)
 <!-- Unity-MCP 自定义工具：输入模拟与录制回放 -->
 
 将此文件中的代码添加到你的 Unity 项目中，即可扩展 Unity-MCP 的输入模拟和录制回放功能。
+
+**v2.1 关键改进（参考 unity-cli-loop）：**
+- ✅ **UI 分步 Drag**：DragStart/DragMove/DragEnd 解决一次性拖拽不稳定问题
+- ✅ **UI 元素定位**：`ui-find-interactive-elements` 返回可交互元素坐标，解决"找不到 draggable"
+- ✅ **LongPress 支持**：长按 UI 元素
+- ✅ **完善错误处理**：检查元素类型、可拖拽性、EventSystem 状态
 
 ## 安装方式
 
@@ -11,8 +17,662 @@
 
 ---
 
-## Tool 1: 鼠标点击模拟（世界空间）
-<!-- 针对游戏世界中的点击，如点击棋盘上的棋子 -->
+## Tool 1: UI 元素定位（关键工具）
+<!-- 解决坐标不准、找不到元素的问题 -->
+
+```csharp
+// Assets/Scripts/MCP/Tool_UIElementFinder.cs
+
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
+using System.Collections.Generic;
+using Io.Kmmurzak.Unity.Mcp.Plugin;
+
+[McpPluginToolType]
+public static class Tool_UIElementFinder
+{
+    /// <summary>
+    /// 查找屏幕上所有可交互 UI 元素，返回坐标信息
+    /// Find all interactive UI elements on screen with coordinates
+    /// </summary>
+    [McpPluginTool("ui-find-interactive-elements", Title = "Find interactive UI elements")]
+    [Description("Find all clickable/draggable UI elements and return their screen coordinates. " +
+                 "Use this BEFORE simulate-click-ui or simulate-drag-ui to get accurate coordinates. " +
+                 "查找所有可点击/可拖拽的 UI 元素并返回屏幕坐标，解决坐标不准问题。")]
+    public static string FindInteractiveElements
+    (
+        [Description("Include inactive elements. 是否包含隐藏元素")]
+        bool includeInactive = false,
+        
+        [Description("Output format: 'json' or 'summary'. 输出格式")]
+        string format = "summary"
+    )
+    {
+        return MainThread.Instance.Run(() =>
+        {
+            var eventSystem = EventSystem.current;
+            if (eventSystem == null)
+                return "[Error] No EventSystem found. Add EventSystem to scene.";
+
+            // 查找所有 Canvas
+            var canvases = Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None);
+            if (canvases.Length == 0)
+                return "[Error] No Canvas found in scene.";
+
+            var elements = new List<UIElementInfo>();
+            
+            foreach (var canvas in canvases)
+            {
+                if (!canvas.gameObject.activeInHierarchy && !includeInactive)
+                    continue;
+
+                // 遍历 Canvas 下的所有 UI 元素
+                FindElementsRecursive(canvas.transform, elements, includeInactive);
+            }
+
+            if (elements.Count == 0)
+                return "[Info] No interactive UI elements found.";
+
+            // 按层级排序（最前面的优先）
+            elements.Sort((a, b) => b.SortingOrder.CompareTo(a.SortingOrder));
+
+            // 添加标签 (A, B, C...)
+            for (int i = 0; i < elements.Count; i++)
+            {
+                elements[i].Label = GetLabel(i);
+            }
+
+            if (format == "json")
+            {
+                var json = Newtonsoft.Json.JsonConvert.SerializeObject(elements);
+                return $"[Success] Found {elements.Count} elements.\n{json}";
+            }
+            else
+            {
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine($"Found {elements.Count} interactive UI elements:");
+                sb.AppendLine("(A = frontmost, use SimX/SimY for simulate-mouse-ui)");
+                sb.AppendLine("");
+                
+                foreach (var elem in elements)
+                {
+                    sb.AppendLine($"{elem.Label}: {elem.Name}");
+                    sb.AppendLine($"  Type: {elem.Type}");
+                    sb.AppendLine($"  Position: SimX={elem.SimX}, SimY={elem.SimY}");
+                    sb.AppendLine($"  Bounds: ({elem.BoundsMinX},{elem.BoundsMinY}) to ({elem.BoundsMaxX},{elem.BoundsMaxY})");
+                    sb.AppendLine($"  SortingOrder: {elem.SortingOrder}");
+                    sb.AppendLine("");
+                }
+                
+                return sb.ToString();
+            }
+        });
+    }
+
+    /// <summary>
+    /// 查找指定名称的 UI 元素
+    /// Find UI element by name
+    /// </summary>
+    [McpPluginTool("ui-find-element-by-name", Title = "Find UI element by name")]
+    [Description("Find a specific UI element by GameObject name and return its coordinates. " +
+                 "通过 GameObject 名称查找特定 UI 元素并返回坐标。")]
+    public static string FindElementByName
+    (
+        [Description("GameObject name. 对象名称")]
+        string name,
+        
+        [Description("Include inactive. 是否包含隐藏元素")]
+        bool includeInactive = false
+    )
+    {
+        return MainThread.Instance.Run(() =>
+        {
+            var go = GameObject.Find(name);
+            if (go == null)
+            {
+                // 尝试在所有 Canvas 下查找
+                var canvases = Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None);
+                foreach (var canvas in canvases)
+                {
+                    var found = FindChildByName(canvas.transform, name);
+                    if (found != null)
+                    {
+                        go = found.gameObject;
+                        break;
+                    }
+                }
+            }
+
+            if (go == null)
+                return $"[Error] UI element '{name}' not found.";
+
+            // 检查是否是 UI 元素
+            var rectTransform = go.GetComponent<RectTransform>();
+            if (rectTransform == null)
+                return $"[Error] '{name}' has no RectTransform (not a UI element).";
+
+            // 计算屏幕坐标
+            Vector3[] corners = new Vector3[4];
+            rectTransform.GetWorldCorners(corners);
+            
+            // 转换为屏幕坐标
+            var canvas = go.GetComponentInParent<Canvas>();
+            Vector2 center = RectTransformUtility.WorldToScreenPoint(canvas.worldCamera, rectTransform.position);
+            
+            // 获取元素类型
+            string type = GetElementType(go);
+            
+            return $"[Success] Found '{name}'\n" +
+                   $"Type: {type}\n" +
+                   $"SimX: {(int)center.x}, SimY: {(int)center.y}\n" +
+                   $"Bounds: ({(int)corners[0].x},{(int)corners[0].y}) to ({(int)corners[2].x},{(int)corners[2].y})\n" +
+                   $"Active: {go.activeInHierarchy}";
+        });
+    }
+
+    // 递归查找元素
+    private static void FindElementsRecursive(Transform parent, List<UIElementInfo> elements, bool includeInactive)
+    {
+        foreach (Transform child in parent)
+        {
+            if (!child.gameObject.activeInHierarchy && !includeInactive)
+                continue;
+
+            // 检查是否是可交互元素
+            var selectable = child.GetComponent<Selectable>();
+            var dragHandler = child.GetComponent<IDragHandler>();
+            var clickHandler = child.GetComponent<IPointerClickHandler>();
+            
+            if (selectable != null || dragHandler != null || clickHandler != null)
+            {
+                var rectTransform = child.GetComponent<RectTransform>();
+                if (rectTransform != null)
+                {
+                    var canvas = child.GetComponentInParent<Canvas>();
+                    Vector2 center = RectTransformUtility.WorldToScreenPoint(
+                        canvas?.worldCamera ?? null, 
+                        rectTransform.position
+                    );
+                    
+                    Vector3[] corners = new Vector3[4];
+                    rectTransform.GetWorldCorners(corners);
+
+                    elements.Add(new UIElementInfo
+                    {
+                        Name = child.name,
+                        Type = GetElementType(child.gameObject),
+                        SimX = (int)center.x,
+                        SimY = (int)center.y,
+                        BoundsMinX = (int)corners[0].x,
+                        BoundsMinY = (int)corners[0].y,
+                        BoundsMaxX = (int)corners[2].x,
+                        BoundsMaxY = (int)corners[2].y,
+                        SortingOrder = canvas?.sortingOrder ?? 0,
+                        Interactable = selectable?.interactable ?? true,
+                        IsDraggable = dragHandler != null
+                    });
+                }
+            }
+
+            // 递归查找子元素
+            FindElementsRecursive(child, elements, includeInactive);
+        }
+    }
+
+    private static Transform FindChildByName(Transform parent, string name)
+    {
+        if (parent.name == name)
+            return parent;
+
+        foreach (Transform child in parent)
+        {
+            var found = FindChildByName(child, name);
+            if (found != null)
+                return found;
+        }
+
+        return null;
+    }
+
+    private static string GetElementType(GameObject go)
+    {
+        if (go.GetComponent<Button>() != null) return "Button";
+        if (go.GetComponent<Toggle>() != null) return "Toggle";
+        if (go.GetComponent<Slider>() != null) return "Slider";
+        if (go.GetComponent<Dropdown>() != null) return "Dropdown";
+        if (go.GetComponent<InputField>() != null) return "InputField";
+        if (go.GetComponent<Scrollbar>() != null) return "Scrollbar";
+        if (go.GetComponent<ScrollRect>() != null) return "ScrollRect";
+        if (go.GetComponent<IDragHandler>() != null) return "Draggable";
+        if (go.GetComponent<Selectable>() != null) return "Selectable";
+        return "Unknown";
+    }
+
+    private static string GetLabel(int index)
+    {
+        if (index < 26) return ((char)('A' + index)).ToString();
+        int first = index / 26 - 1;
+        int second = index % 26;
+        return ((char)('A' + first)).ToString() + ((char)('A' + second)).ToString();
+    }
+
+    private class UIElementInfo
+    {
+        public string Label;
+        public string Name;
+        public string Type;
+        public int SimX;
+        public int SimY;
+        public int BoundsMinX;
+        public int BoundsMinY;
+        public int BoundsMaxX;
+        public int BoundsMaxY;
+        public int SortingOrder;
+        public bool Interactable;
+        public bool IsDraggable;
+    }
+}
+```
+
+---
+
+## Tool 2: 鼠标点击模拟（UI 空间）- 增强版
+<!-- 支持分步 Drag、LongPress，解决不稳定问题 -->
+
+```csharp
+// Assets/Scripts/MCP/Tool_MouseUI.cs
+
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
+using System.Collections;
+using Io.Kmmurzak.Unity.Mcp.Plugin;
+
+[McpPluginToolType]
+public static class Tool_MouseUI
+{
+    // 保持拖拽状态
+    private static GameObject currentDragTarget = null;
+    private static PointerEventData currentDragPointerData = null;
+    private static bool isDragging = false;
+
+    /// <summary>
+    /// 模拟 UI 点击（通过 EventSystem）
+    /// Simulate UI click via EventSystem
+    /// </summary>
+    [McpPluginTool("simulate-click-ui", Title = "Simulate UI click")]
+    [Description("Simulate a click on Unity UI elements. Use ui-find-interactive-elements first to get accurate coordinates. " +
+                 "模拟点击 Unity UI 元素。先用 ui-find-interactive-elements 获取准确坐标。")]
+    public static string SimulateClickUI
+    (
+        [Description("Screen X coordinate (SimX from ui-find). 屏幕 X 坐标")]
+        int x,
+        
+        [Description("Screen Y coordinate (SimY from ui-find). 屏幕 Y 坐标")]
+        int y,
+        
+        [Description("Mouse button: Left, Right, Middle. 鼠标按钮")]
+        string button = "Left"
+    )
+    {
+        return MainThread.Instance.Run(() =>
+        {
+            var eventSystem = EventSystem.current;
+            if (eventSystem == null)
+                return "[Error] No EventSystem found. Add EventSystem to scene.";
+
+            var pointerData = new PointerEventData(eventSystem);
+            pointerData.position = new Vector2(x, y);
+            
+            // 设置按钮
+            pointerData.button = button == "Right" ? PointerEventData.InputButton.Right
+                              : button == "Middle" ? PointerEventData.InputButton.Middle
+                              : PointerEventData.InputButton.Left;
+
+            var results = new System.Collections.Generic.List<RaycastResult>();
+            eventSystem.RaycastAll(pointerData, results);
+
+            if (results.Count == 0)
+                return $"[Success] Click at ({x}, {y}) - No UI element hit (empty space).";
+
+            var target = results[0].gameObject;
+
+            // 检查是否可点击
+            if (!ExecuteEvents.CanHandleEvent<IPointerClickHandler>(target))
+            {
+                // 检查是否是 Button
+                var btn = target.GetComponent<Button>();
+                if (btn != null && btn.interactable)
+                {
+                    btn.onClick.Invoke();
+                    return $"[Success] Clicked Button '{target.name}' via onClick.Invoke()";
+                }
+                return $"[Warning] '{target.name}' does not handle click events. Found: {target.name}";
+            }
+
+            // 执行点击事件序列
+            ExecuteEvents.Execute(target, pointerData, ExecuteEvents.pointerDownHandler);
+            ExecuteEvents.Execute(target, pointerData, ExecuteEvents.pointerUpHandler);
+            ExecuteEvents.Execute(target, pointerData, ExecuteEvents.pointerClickHandler);
+
+            return $"[Success] Clicked '{target.name}' at ({x}, {y})";
+        });
+    }
+
+    /// <summary>
+    /// 长按 UI 元素
+    /// Long press UI element
+    /// </summary>
+    [McpPluginTool("simulate-long-press-ui", Title = "Simulate UI long press")]
+    [Description("Press and hold UI element for specified duration. No click event is fired. " +
+                 "长按 UI 元素指定时长，不触发 click 事件。")]
+    public static string SimulateLongPressUI
+    (
+        [Description("Screen X coordinate. 屏幕 X 坐标")]
+        int x,
+        
+        [Description("Screen Y coordinate. 屏幕 Y 坐标")]
+        int y,
+        
+        [Description("Hold duration in seconds. 按住时长（秒）")]
+        float duration = 1.0f
+    )
+    {
+        return MainThread.Instance.Run(() =>
+        {
+            var eventSystem = EventSystem.current;
+            if (eventSystem == null)
+                return "[Error] No EventSystem found.";
+
+            var pointerData = new PointerEventData(eventSystem);
+            pointerData.position = new Vector2(x, y);
+            pointerData.button = PointerEventData.InputButton.Left;
+
+            var results = new System.Collections.Generic.List<RaycastResult>();
+            eventSystem.RaycastAll(pointerData, results);
+
+            if (results.Count == 0)
+                return $"[Success] Long press at ({x}, {y}) - No UI element.";
+
+            var target = results[0].gameObject;
+
+            // PointerDown
+            ExecuteEvents.Execute(target, pointerData, ExecuteEvents.pointerDownHandler);
+
+            // 等待
+            System.Threading.Thread.Sleep((int)(duration * 1000));
+
+            // PointerUp (但不触发 click)
+            ExecuteEvents.Execute(target, pointerData, ExecuteEvents.pointerUpHandler);
+
+            return $"[Success] Long pressed '{target.name}' for {duration}s at ({x}, {y})";
+        });
+    }
+
+    /// <summary>
+    /// 开始 UI 拖拽（按下并开始拖拽）
+    /// Start UI drag - press and begin drag
+    /// </summary>
+    [McpPluginTool("simulate-drag-ui-start", Title = "Start UI drag")]
+    [Description("Begin drag at position. MUST call simulate-drag-ui-end to release. " +
+                 "在指定位置开始拖拽。必须调用 simulate-drag-ui-end 来释放。")]
+    public static string SimulateDragUIStart
+    (
+        [Description("Screen X coordinate. 屏幕 X 坐标")]
+        int x,
+        
+        [Description("Screen Y coordinate. 屏幕 Y 坐标")]
+        int y
+    )
+    {
+        return MainThread.Instance.Run(() =>
+        {
+            if (isDragging)
+                return "[Error] Already dragging. Call simulate-drag-ui-end first.";
+
+            var eventSystem = EventSystem.current;
+            if (eventSystem == null)
+                return "[Error] No EventSystem found.";
+
+            var pointerData = new PointerEventData(eventSystem);
+            pointerData.position = new Vector2(x, y);
+            pointerData.button = PointerEventData.InputButton.Left;
+
+            var results = new System.Collections.Generic.List<RaycastResult>();
+            eventSystem.RaycastAll(pointerData, results);
+
+            if (results.Count == 0)
+                return "[Error] No UI element at ({x}, {y}). Cannot start drag on empty space.";
+
+            var target = results[0].gameObject;
+
+            // 检查是否可拖拽
+            if (!ExecuteEvents.CanHandleEvent<IDragHandler>(target))
+                return $"[Error] '{target.name}' is not draggable. Use ui-find-interactive-elements to find draggable elements.";
+
+            // PointerDown
+            ExecuteEvents.Execute(target, pointerData, ExecuteEvents.pointerDownHandler);
+
+            // BeginDrag
+            ExecuteEvents.Execute(target, pointerData, ExecuteEvents.beginDragHandler);
+
+            // 保持状态
+            currentDragTarget = target;
+            currentDragPointerData = pointerData;
+            isDragging = true;
+
+            return $"[Success] Drag started on '{target.name}' at ({x}, {y})";
+        });
+    }
+
+    /// <summary>
+    /// 移动 UI 拖拽位置（拖拽过程中移动）
+    /// Move during UI drag
+    /// </summary>
+    [McpPluginTool("simulate-drag-ui-move", Title = "Move UI drag")]
+    [Description("Move drag position. Must have started drag with simulate-drag-ui-start. " +
+                 "移动拖拽位置。必须先用 simulate-drag-ui-start 开始拖拽。")]
+    public static string SimulateDragUIMove
+    (
+        [Description("Target screen X. 目标屏幕 X")]
+        int x,
+        
+        [Description("Target screen Y. 目标屏幕 Y")]
+        int y
+    )
+    {
+        return MainThread.Instance.Run(() =>
+        {
+            if (!isDragging || currentDragTarget == null)
+                return "[Error] Not currently dragging. Start with simulate-drag-ui-start first.";
+
+            currentDragPointerData.position = new Vector2(x, y);
+            ExecuteEvents.Execute(currentDragTarget, currentDragPointerData, ExecuteEvents.dragHandler);
+
+            return $"[Success] Drag moved to ({x}, {y}) on '{currentDragTarget.name}'";
+        });
+    }
+
+    /// <summary>
+    /// 结束 UI 拖拽（释放）
+    /// End UI drag - release
+    /// </summary>
+    [McpPluginTool("simulate-drag-ui-end", Title = "End UI drag")]
+    [Description("End drag at position. MUST call after simulate-drag-ui-start. " +
+                 "在指定位置结束拖拽。必须在 simulate-drag-ui-start 之后调用。")]
+    public static string SimulateDragUIEnd
+    (
+        [Description("End screen X. 结束屏幕 X")]
+        int x,
+        
+        [Description("End screen Y. 结束屏幕 Y")]
+        int y
+    )
+    {
+        return MainThread.Instance.Run(() =>
+        {
+            if (!isDragging || currentDragTarget == null)
+                return "[Error] Not currently dragging. Start with simulate-drag-ui-start first.";
+
+            currentDragPointerData.position = new Vector2(x, y);
+            
+            // Drag (final move)
+            ExecuteEvents.Execute(currentDragTarget, currentDragPointerData, ExecuteEvents.dragHandler);
+            
+            // EndDrag
+            ExecuteEvents.Execute(currentDragTarget, currentDragPointerData, ExecuteEvents.endDragHandler);
+            
+            // PointerUp
+            ExecuteEvents.Execute(currentDragTarget, currentDragPointerData, ExecuteEvents.pointerUpHandler);
+
+            var targetName = currentDragTarget.name;
+            
+            // 清理状态
+            currentDragTarget = null;
+            currentDragPointerData = null;
+            isDragging = false;
+
+            return $"[Success] Drag ended at ({x}, {y}) on '{targetName}'";
+        });
+    }
+
+    /// <summary>
+    /// 一体化 UI 拖拽（从起点拖到终点）
+    /// One-shot UI drag from start to end
+    /// </summary>
+    [McpPluginTool("simulate-drag-ui", Title = "Drag UI element")]
+    [Description("Drag UI element from start to end position. For complex drag, use drag-ui-start/move/end separately. " +
+                 "从起点拖拽 UI 元素到终点。复杂拖拽请使用 drag-ui-start/move/end 分步操作。")]
+    public static string SimulateDragUI
+    (
+        [Description("Start screen X. 起点屏幕 X")]
+        int startX,
+        
+        [Description("Start screen Y. 起点屏幕 Y")]
+        int startY,
+        
+        [Description("End screen X. 终点屏幕 X")]
+        int endX,
+        
+        [Description("End screen Y. 终点屏幕 Y")]
+        int endY,
+        
+        [Description("Duration in seconds (0 for instant). 持续时间（秒），0 为瞬间")]
+        float duration = 0.3f
+    )
+    {
+        return MainThread.Instance.Run(() =>
+        {
+            // 使用分步 API
+            var startResult = SimulateDragUIStart(startX, startY);
+            if (startResult.StartsWith("[Error]"))
+                return startResult;
+
+            // 如果有持续时间，分步移动
+            if (duration > 0)
+            {
+                int steps = 10;
+                float stepTime = duration / steps;
+                
+                for (int i = 1; i <= steps; i++)
+                {
+                    float t = i / (float)steps;
+                    int currentX = (int)(startX + (endX - startX) * t);
+                    int currentY = (int)(startY + (endY - startY) * t);
+                    
+                    currentDragPointerData.position = new Vector2(currentX, currentY);
+                    ExecuteEvents.Execute(currentDragTarget, currentDragPointerData, ExecuteEvents.dragHandler);
+                    
+                    System.Threading.Thread.Sleep((int)(stepTime * 1000));
+                }
+            }
+
+            return SimulateDragUIEnd(endX, endY);
+        });
+    }
+
+    /// <summary>
+    /// 通过 GameObject 名称点击 UI 按钮
+    /// Click UI button by GameObject name
+    /// </summary>
+    [McpPluginTool("click-button-by-name", Title = "Click UI button by name")]
+    [Description("Find and click a UI button by its GameObject name. " +
+                 "通过 GameObject 名称查找并点击 UI 按钮。")]
+    public static string ClickButtonByName
+    (
+        [Description("Button GameObject name. 按钮对象名称")]
+        string buttonName
+    )
+    {
+        return MainThread.Instance.Run(() =>
+        {
+            var button = GameObject.Find(buttonName);
+            if (button == null)
+                return $"[Error] Button '{buttonName}' not found. Use ui-find-interactive-elements to list all buttons.";
+
+            var buttonComponent = button.GetComponent<Button>();
+            if (buttonComponent == null)
+                return $"[Error] GameObject '{buttonName}' has no Button component.";
+
+            if (!buttonComponent.interactable)
+                return $"[Warning] Button '{buttonName}' is not interactable (disabled).";
+
+            buttonComponent.onClick.Invoke();
+            return $"[Success] Clicked button: {buttonName}";
+        });
+    }
+
+    /// <summary>
+    /// 悬停在 UI 元素上
+    /// Hover over UI element
+    /// </summary>
+    [McpPluginTool("simulate-hover-ui", Title = "Hover over UI")]
+    [Description("Move pointer over UI element without clicking. " +
+                 "移动指针悬停在 UI 元素上但不点击。")]
+    public static string SimulateHoverUI
+    (
+        [Description("Screen X. 屏幕 X")]
+        int x,
+        
+        [Description("Screen Y. 屏幕 Y")]
+        int y
+    )
+    {
+        return MainThread.Instance.Run(() =>
+        {
+            var eventSystem = EventSystem.current;
+            if (eventSystem == null)
+                return "[Error] No EventSystem found.";
+
+            var pointerData = new PointerEventData(eventSystem);
+            pointerData.position = new Vector2(x, y);
+
+            var results = new System.Collections.Generic.List<RaycastResult>();
+            eventSystem.RaycastAll(pointerData, results);
+
+            if (results.Count > 0)
+            {
+                var target = results[0].gameObject;
+                ExecuteEvents.Execute(target, pointerData, ExecuteEvents.pointerEnterHandler);
+                return $"[Success] Hovering over: {target.name}";
+            }
+
+            // Exit previous hover
+            if (eventSystem.currentSelectedGameObject != null)
+            {
+                ExecuteEvents.Execute(eventSystem.currentSelectedGameObject, pointerData, ExecuteEvents.pointerExitHandler);
+            }
+
+            return $"[Success] Hover at ({x}, {y}) - No UI element.";
+        });
+    }
+}
+```
+
+---
+
+## Tool 3: 鼠标点击模拟（世界空间）
 
 ```csharp
 // Assets/Scripts/MCP/Tool_MouseInput.cs
@@ -38,54 +698,55 @@ public static class Tool_MouseInput
         int x,
         
         [Description("Screen Y coordinate in pixels. 屏幕 Y 坐标（像素）")]
-        int y
+        int y,
+        
+        [Description("Button: 0=left, 1=right, 2=middle. 按钮")]
+        int button = 0
     )
     {
         return MainThread.Instance.Run(() =>
         {
             if (Mouse.current == null)
-            {
                 return "[Error] Mouse device not available. Ensure Input System is enabled.";
-            }
 
-            // 设置鼠标位置
             Mouse.current.position.value = new Vector2(x, y);
             
-            // 模拟按下和释放
-            Mouse.current.leftButton.press();
-            Mouse.current.leftButton.release();
+            var buttonControl = button == 0 ? Mouse.current.leftButton 
+                          : button == 1 ? Mouse.current.rightButton 
+                          : Mouse.current.middleButton;
+            
+            buttonControl.press();
+            buttonControl.release();
 
-            // 执行射线检测确认命中
             var ray = Camera.main.ScreenPointToRay(new Vector2(x, y));
             var hit = Physics.Raycast(ray, out var hitInfo, 100f);
 
             if (hit)
-            {
                 return $"[Success] Clicked at ({x}, {y}). Hit: {hitInfo.collider.gameObject.name}";
-            }
             else
-            {
                 return $"[Success] Clicked at ({x}, {y}). No collider hit (raycast miss).";
-            }
         });
     }
 
     /// <summary>
-    /// 模拟鼠标按下（不释放）
-    /// Simulate mouse button press without release
+    /// 长按（用于挖掘等操作）
+    /// Long press for mining etc.
     /// </summary>
-    [McpPluginTool("simulate-mouse-down", Title = "Simulate mouse button down")]
-    [Description("Press mouse button without releasing. Useful for drag operations. " +
-                 "按下鼠标按钮不释放，用于拖拽操作。")]
-    public static string SimulateMouseDown
+    [McpPluginTool("simulate-long-press-world", Title = "Long press world")]
+    [Description("Press and hold mouse for duration. Use for mining, charging etc. " +
+                 "按住鼠标一段时间，用于挖掘、蓄力等操作。")]
+    public static string SimulateLongPressWorld
     (
-        [Description("Screen X coordinate. 屏幕 X 坐标")]
+        [Description("Screen X. 屏幕 X")]
         int x,
         
-        [Description("Screen Y coordinate. 屏幕 Y 坐标")]
+        [Description("Screen Y. 屏幕 Y")]
         int y,
         
-        [Description("Button: 0=left, 1=right, 2=middle. 按钮：0=左键，1=右键，2=中键")]
+        [Description("Duration in seconds. 持续时间（秒）")]
+        float duration = 2.0f,
+        
+        [Description("Button: 0=left, 1=right, 2=middle. 按钮")]
         int button = 0
     )
     {
@@ -101,23 +762,44 @@ public static class Tool_MouseInput
                           : Mouse.current.middleButton;
             
             buttonControl.press();
+            System.Threading.Thread.Sleep((int)(duration * 1000));
+            buttonControl.release();
 
+            return $"[Success] Long pressed at ({x}, {y}) for {duration}s";
+        });
+    }
+
+    /// <summary>
+    /// 鼠标按下（不释放）
+    /// </summary>
+    [McpPluginTool("simulate-mouse-down", Title = "Mouse button down")]
+    [Description("Press mouse button without releasing. " +
+                 "按下鼠标按钮不释放。")]
+    public static string SimulateMouseDown(int x, int y, int button = 0)
+    {
+        return MainThread.Instance.Run(() =>
+        {
+            if (Mouse.current == null)
+                return "[Error] Mouse device not available.";
+
+            Mouse.current.position.value = new Vector2(x, y);
+            
+            var buttonControl = button == 0 ? Mouse.current.leftButton 
+                          : button == 1 ? Mouse.current.rightButton 
+                          : Mouse.current.middleButton;
+            
+            buttonControl.press();
             return $"[Success] Mouse button {button} pressed at ({x}, {y})";
         });
     }
 
     /// <summary>
-    /// 模拟鼠标释放
-    /// Simulate mouse button release
+    /// 鼠标释放
     /// </summary>
-    [McpPluginTool("simulate-mouse-up", Title = "Simulate mouse button up")]
+    [McpPluginTool("simulate-mouse-up", Title = "Mouse button up")]
     [Description("Release previously pressed mouse button. " +
                  "释放之前按下的鼠标按钮。")]
-    public static string SimulateMouseUp
-    (
-        [Description("Button: 0=left, 1=right, 2=middle. 按钮")]
-        int button = 0
-    )
+    public static string SimulateMouseUp(int button = 0)
     {
         return MainThread.Instance.Run(() =>
         {
@@ -129,26 +811,17 @@ public static class Tool_MouseInput
                           : Mouse.current.middleButton;
             
             buttonControl.release();
-
             return $"[Success] Mouse button {button} released";
         });
     }
 
     /// <summary>
-    /// 模拟鼠标移动
-    /// Simulate mouse movement
+    /// 鼠标移动
     /// </summary>
-    [McpPluginTool("simulate-mouse-move", Title = "Simulate mouse movement")]
+    [McpPluginTool("simulate-mouse-move", Title = "Move mouse")]
     [Description("Move mouse to screen position without clicking. " +
                  "移动鼠标到屏幕位置但不点击。")]
-    public static string SimulateMouseMove
-    (
-        [Description("Target screen X. 目标屏幕 X")]
-        int x,
-        
-        [Description("Target screen Y. 目标屏幕 Y")]
-        int y
-    )
+    public static string SimulateMouseMove(int x, int y)
     {
         return MainThread.Instance.Run(() =>
         {
@@ -161,28 +834,15 @@ public static class Tool_MouseInput
     }
 
     /// <summary>
-    /// 模拟拖拽操作（从起点拖到终点）
-    /// Simulate drag operation from start to end
+    /// 鼠标滚轮
     /// </summary>
-    [McpPluginTool("simulate-drag-world", Title = "Simulate world-space drag")]
-    [Description("Simulate drag from start position to end position in world-space. " +
-                 "模拟从起点拖拽到终点的世界空间操作。")]
-    public static string SimulateDragWorld
+    [McpPluginTool("simulate-mouse-scroll", Title = "Scroll mouse wheel")]
+    [Description("Inject scroll wheel input. Positive = scroll up, Negative = scroll down. " +
+                 "注入滚轮输入。正数向上滚动，负数向下滚动。")]
+    public static string SimulateMouseScroll
     (
-        [Description("Start screen X. 起点屏幕 X")]
-        int startX,
-        
-        [Description("Start screen Y. 起点屏幕 Y")]
-        int startY,
-        
-        [Description("End screen X. 终点屏幕 X")]
-        int endX,
-        
-        [Description("End screen Y. 终点屏幕 Y")]
-        int endY,
-        
-        [Description("Duration in seconds. 持续时间（秒）")]
-        float duration = 0.5f
+        [Description("Scroll amount. Typical value: 120 per notch. 滚动量")]
+        float scrollY = 120f
     )
     {
         return MainThread.Instance.Run(() =>
@@ -190,14 +850,85 @@ public static class Tool_MouseInput
             if (Mouse.current == null)
                 return "[Error] Mouse device not available.";
 
-            // 按下起点
+            Mouse.current.scroll.value = new Vector2(0, scrollY);
+            return $"[Success] Scroll injected: {scrollY}";
+        });
+    }
+
+    /// <summary>
+    /// 鼠标移动增量（FPS 相机控制）
+    /// </summary>
+    [McpPluginTool("simulate-mouse-delta", Title = "Inject mouse delta")]
+    [Description("Inject mouse movement delta for FPS camera control etc. " +
+                 "注入鼠标移动增量，用于 FPS 相机控制等。")]
+    public static string SimulateMouseDelta
+    (
+        [Description("Delta X in pixels. Positive = right. 增量 X")]
+        float deltaX = 0,
+        
+        [Description("Delta Y in pixels. Positive = up. 增量 Y")]
+        float deltaY = 0
+    )
+    {
+        return MainThread.Instance.Run(() =>
+        {
+            if (Mouse.current == null)
+                return "[Error] Mouse device not available.";
+
+            // Input System delta 是累积的
+            Mouse.current.delta.value = new Vector2(deltaX, deltaY);
+            return $"[Success] Mouse delta injected: ({deltaX}, {deltaY})";
+        });
+    }
+
+    /// <summary>
+    /// 世界空间拖拽
+    /// </summary>
+    [McpPluginTool("simulate-drag-world", Title = "Drag world")]
+    [Description("Drag from start to end position for world-space gameplay (e.g. match3 sliding). " +
+                 "从起点拖拽到终点，用于世界空间游戏交互（如三消滑动）。")]
+    public static string SimulateDragWorld
+    (
+        [Description("Start X. 起点 X")]
+        int startX,
+        
+        [Description("Start Y. 起点 Y")]
+        int startY,
+        
+        [Description("End X. 终点 X")]
+        int endX,
+        
+        [Description("End Y. 终点 Y")]
+        int endY,
+        
+        [Description("Duration in seconds. 持续时间（秒）")]
+        float duration = 0.3f
+    )
+    {
+        return MainThread.Instance.Run(() =>
+        {
+            if (Mouse.current == null)
+                return "[Error] Mouse device not available.";
+
             Mouse.current.position.value = new Vector2(startX, startY);
             Mouse.current.leftButton.press();
 
-            // 等待
-            System.Threading.Thread.Sleep((int)(duration * 1000));
+            if (duration > 0)
+            {
+                int steps = 10;
+                float stepTime = duration / steps;
+                
+                for (int i = 1; i <= steps; i++)
+                {
+                    float t = i / (float)steps;
+                    int currentX = (int)(startX + (endX - startX) * t);
+                    int currentY = (int)(startY + (endY - startY) * t);
+                    
+                    Mouse.current.position.value = new Vector2(currentX, currentY);
+                    System.Threading.Thread.Sleep((int)(stepTime * 1000));
+                }
+            }
 
-            // 移动到终点并释放
             Mouse.current.position.value = new Vector2(endX, endY);
             Mouse.current.leftButton.release();
 
@@ -209,153 +940,7 @@ public static class Tool_MouseInput
 
 ---
 
-## Tool 2: 鼠标点击模拟（UI 空间）
-<!-- 针对 Unity UI 的点击，如按钮、滑块 -->
-
-```csharp
-// Assets/Scripts/MCP/Tool_MouseUI.cs
-
-using UnityEngine;
-using UnityEngine.EventSystems;
-using UnityEngine.InputSystem;
-using Io.Kmmurzak.Unity.Mcp.Plugin;
-
-[McpPluginToolType]
-public static class Tool_MouseUI
-{
-    /// <summary>
-    /// 模拟 UI 点击（通过 EventSystem）
-    /// Simulate UI click via EventSystem
-    /// </summary>
-    [McpPluginTool("simulate-click-ui", Title = "Simulate UI button click")]
-    [Description("Simulate a click on Unity UI elements (buttons, toggles, sliders). " +
-                 "Uses EventSystem for proper UI interaction. " +
-                 "模拟点击 Unity UI 元素（按钮、开关、滑块），使用 EventSystem。")]
-    public static string SimulateClickUI
-    (
-        [Description("Screen X coordinate. 屏幕 X 坐标")]
-        int x,
-        
-        [Description("Screen Y coordinate. 屏幕 Y 坐标")]
-        int y
-    )
-    {
-        return MainThread.Instance.Run(() =>
-        {
-            var eventSystem = EventSystem.current;
-            if (eventSystem == null)
-            {
-                return "[Error] No EventSystem found. Add EventSystem to scene.";
-            }
-
-            // 创建指针事件数据
-            var pointerData = new PointerEventData(eventSystem);
-            pointerData.position = new Vector2(x, y);
-
-            // 执行射线检测
-            var results = new System.Collections.Generic.List<RaycastResult>();
-            eventSystem.RaycastAll(pointerData, results);
-
-            if (results.Count == 0)
-            {
-                return $"[Success] Click at ({x}, {y}) - No UI element hit.";
-            }
-
-            var target = results[0].gameObject;
-            
-            // 模拟点击事件
-            ExecuteEvents.Execute(target, pointerData, ExecuteEvents.pointerClickHandler);
-
-            return $"[Success] Clicked UI element: {target.name} at ({x}, {y})";
-        });
-    }
-
-    /// <summary>
-    /// 模拟 UI 悬停（移动鼠标到 UI 元素）
-    /// Simulate UI hover
-    /// </summary>
-    [McpPluginTool("simulate-hover-ui", Title = "Simulate UI hover")]
-    [Description("Move mouse over UI element without clicking. " +
-                 "移动鼠标悬停在 UI 元素上但不点击。")]
-    public static string SimulateHoverUI
-    (
-        [Description("Screen X. 屏幕 X")]
-        int x,
-        
-        [Description("Screen Y. 屏幕 Y")]
-        int y
-    )
-    {
-        return MainThread.Instance.Run(() =>
-        {
-            var eventSystem = EventSystem.current;
-            if (eventSystem == null)
-                return "[Error] No EventSystem found.";
-
-            var pointerData = new PointerEventData(eventSystem);
-            pointerData.position = new Vector2(x, y);
-
-            var results = new System.Collections.Generic.List<RaycastResult>();
-            eventSystem.RaycastAll(pointerData, results);
-
-            // 模拟进入悬停
-            if (results.Count > 0)
-            {
-                var target = results[0].gameObject;
-                ExecuteEvents.Execute(target, pointerData, ExecuteEvents.pointerEnterHandler);
-                return $"[Success] Hovering over: {target.name}";
-            }
-
-            // 模拟退出悬停（如果有之前悬停的对象）
-            if (eventSystem.currentSelectedGameObject != null)
-            {
-                ExecuteEvents.Execute(eventSystem.currentSelectedGameObject, pointerData, ExecuteEvents.pointerExitHandler);
-            }
-
-            return $"[Success] Hover at ({x}, {y}) - No UI element.";
-        });
-    }
-
-    /// <summary>
-    /// 通过 GameObject 名称点击 UI 按钮
-    /// Click UI button by GameObject name
-    /// </summary>
-    [McpPluginTool("click-button-by-name", Title = "Click UI button by name")]
-    [Description("Find and click a UI button by its GameObject name. " +
-                 "通过 GameObject 名称查找并点击 UI 按钮。")]
-    public static string ClickButtonByName
-    (
-        [Description("Button GameObject name. 按钮对象名称")]
-        string buttonName
-    )
-    {
-        return MainThread.Instance.Run(() =>
-        {
-            var button = GameObject.Find(buttonName);
-            if (button == null)
-            {
-                return $"[Error] Button '{buttonName}' not found.";
-            }
-
-            var buttonComponent = button.GetComponent<UnityEngine.UI.Button>();
-            if (buttonComponent == null)
-            {
-                return $"[Error] GameObject '{buttonName}' has no Button component.";
-            }
-
-            // 直接调用 onClick
-            buttonComponent.onClick.Invoke();
-
-            return $"[Success] Clicked button: {buttonName}";
-        });
-    }
-}
-```
-
----
-
-## Tool 3: 键盘输入模拟
-<!-- 模拟键盘按键 -->
+## Tool 4: 键盘输入模拟
 
 ```csharp
 // Assets/Scripts/MCP/Tool_KeyboardInput.cs
@@ -363,21 +948,27 @@ public static class Tool_MouseUI
 using UnityEngine;
 using UnityEngine.InputSystem;
 using Io.Kmmurzak.Unity.Mcp.Plugin;
+using System.Collections.Generic;
 
 [McpPluginToolType]
 public static class Tool_KeyboardInput
 {
+    // 保持按下的按键
+    private static HashSet<Key> heldKeys = new HashSet<Key>();
+
     /// <summary>
-    /// 模拟按键按下并释放
-    /// Simulate key press and release
+    /// 按下并释放按键
     /// </summary>
-    [McpPluginTool("simulate-key-press", Title = "Simulate keyboard key press")]
-    [Description("Simulate pressing and releasing a keyboard key. " +
-                 "模拟按下并释放键盘按键。")]
+    [McpPluginTool("simulate-key-press", Title = "Press key")]
+    [Description("Press and release a keyboard key. " +
+                 "按下并释放键盘按键。")]
     public static string SimulateKeyPress
     (
-        [Description("Key name (e.g. 'A', 'Space', 'Enter', 'Escape'). 按键名称")]
-        string key
+        [Description("Key name (W, A, S, D, Space, Enter, Escape, etc). 按键名称")]
+        string key,
+        
+        [Description("Hold duration in seconds (0 for instant tap). 按住时长")]
+        float duration = 0f
     )
     {
         return MainThread.Instance.Run(() =>
@@ -385,24 +976,27 @@ public static class Tool_KeyboardInput
             if (Keyboard.current == null)
                 return "[Error] Keyboard device not available.";
 
-            var keyControl = GetKeyControl(key);
-            if (keyControl == null)
-                return $"[Error] Key '{key}' not recognized.";
+            var keyControl = ParseKey(key);
+            if (keyControl == Key.None)
+                return $"[Error] Key '{key}' not recognized. Valid keys: A-Z, 0-9, Space, Enter, Escape, Tab, ArrowUp/Down/Left/Right, LeftShift, LeftCtrl.";
 
-            keyControl.press();
-            keyControl.release();
+            Keyboard.current[keyControl].press();
+            
+            if (duration > 0)
+                System.Threading.Thread.Sleep((int)(duration * 1000));
+            
+            Keyboard.current[keyControl].release();
 
-            return $"[Success] Key '{key}' pressed and released";
+            return $"[Success] Key '{key}' pressed";
         });
     }
 
     /// <summary>
-    /// 模拟按键按下（不释放）
-    /// Simulate key down
+    /// 按下按键（保持）
     /// </summary>
-    [McpPluginTool("simulate-key-down", Title = "Simulate key down")]
-    [Description("Press key without releasing. " +
-                 "按下按键不释放。")]
+    [McpPluginTool("simulate-key-down", Title = "Key down")]
+    [Description("Press key without releasing. Call key-up to release. " +
+                 "按下按键不释放。调用 key-up 释放。")]
     public static string SimulateKeyDown
     (
         [Description("Key name. 按键名称")]
@@ -414,22 +1008,26 @@ public static class Tool_KeyboardInput
             if (Keyboard.current == null)
                 return "[Error] Keyboard device not available.";
 
-            var keyControl = GetKeyControl(key);
-            if (keyControl == null)
+            var keyControl = ParseKey(key);
+            if (keyControl == Key.None)
                 return $"[Error] Key '{key}' not recognized.";
 
-            keyControl.press();
+            if (heldKeys.Contains(keyControl))
+                return $"[Warning] Key '{key}' is already held.";
+
+            Keyboard.current[keyControl].press();
+            heldKeys.Add(keyControl);
+
             return $"[Success] Key '{key}' pressed (held)";
         });
     }
 
     /// <summary>
-    /// 模拟按键释放
-    /// Simulate key up
+    /// 释放按键
     /// </summary>
-    [McpPluginTool("simulate-key-up", Title = "Simulate key up")]
-    [Description("Release previously pressed key. " +
-                 "释放之前按下的按键。")]
+    [McpPluginTool("simulate-key-up", Title = "Key up")]
+    [Description("Release previously held key. " +
+                 "释放之前按住的按键。")]
     public static string SimulateKeyUp
     (
         [Description("Key name. 按键名称")]
@@ -441,28 +1039,32 @@ public static class Tool_KeyboardInput
             if (Keyboard.current == null)
                 return "[Error] Keyboard device not available.";
 
-            var keyControl = GetKeyControl(key);
-            if (keyControl == null)
+            var keyControl = ParseKey(key);
+            if (keyControl == Key.None)
                 return $"[Error] Key '{key}' not recognized.";
 
-            keyControl.release();
+            if (!heldKeys.Contains(keyControl))
+                return $"[Warning] Key '{key}' is not currently held.";
+
+            Keyboard.current[keyControl].release();
+            heldKeys.Remove(keyControl);
+
             return $"[Success] Key '{key}' released";
         });
     }
 
     /// <summary>
-    /// 模拟文本输入
-    /// Simulate text input
+    /// 输入文本
     /// </summary>
-    [McpPluginTool("simulate-text-input", Title = "Simulate text input")]
-    [Description("Simulate typing a string of text. " +
-                 "模拟输入一段文本。")]
+    [McpPluginTool("simulate-text-input", Title = "Type text")]
+    [Description("Type a string of text character by character. " +
+                 "逐字符输入文本。")]
     public static string SimulateTextInput
     (
         [Description("Text to type. 要输入的文本")]
         string text,
         
-        [Description("Delay between keys in ms. 每个按键间隔（毫秒）")]
+        [Description("Delay between keys in ms. 每个按键间隔")]
         int delayMs = 50
     )
     {
@@ -473,74 +1075,90 @@ public static class Tool_KeyboardInput
 
             foreach (char c in text)
             {
-                var keyControl = GetKeyControlFromChar(c);
-                if (keyControl != null)
+                var key = CharToKey(c);
+                if (key != Key.None)
                 {
-                    keyControl.press();
+                    Keyboard.current[key].press();
                     System.Threading.Thread.Sleep(delayMs);
-                    keyControl.release();
+                    Keyboard.current[key].release();
                     System.Threading.Thread.Sleep(delayMs);
                 }
             }
 
-            return $"[Success] Typed text: '{text}'";
+            return $"[Success] Typed: '{text}'";
         });
     }
 
-    // 辅助方法：获取按键控制
-    private static KeyControl GetKeyControl(string keyName)
+    private static Key ParseKey(string keyName)
     {
-        var keyboard = Keyboard.current;
+        keyName = keyName.ToLower().Replace(" ", "").Replace("-", "");
         
-        // 尝试直接匹配
-        if (keyboard[keyName.ToLower()] != null)
-            return keyboard[keyName.ToLower()] as KeyControl;
-
-        // 特殊键名映射
-        switch (keyName.ToLower())
+        // 字母
+        if (keyName.Length == 1 && keyName[0] >= 'a' && keyName[0] <= 'z')
+            return (Key)Enum.Parse(typeof(Key), keyName.ToUpper());
+        
+        // 数字
+        if (keyName.Length == 1 && keyName[0] >= '0' && keyName[0] <= '9')
+            return (Key)Enum.Parse(typeof(Key), "Digit" + keyName);
+        
+        // 特殊键
+        switch (keyName)
         {
-            case "space": return keyboard.spaceKey;
-            case "enter": return keyboard.enterKey;
-            case "return": return keyboard.enterKey;
-            case "escape": return keyboard.escapeKey;
-            case "esc": return keyboard.escapeKey;
-            case "tab": return keyboard.tabKey;
-            case "backspace": return keyboard.backspaceKey;
-            case "delete": return keyboard.deleteKey;
-            case "shift": return keyboard.leftShiftKey;
-            case "ctrl": return keyboard.leftCtrlKey;
-            case "alt": return keyboard.leftAltKey;
-            case "arrowup": return keyboard.upArrowKey;
-            case "arrowdown": return keyboard.downArrowKey;
-            case "arrowleft": return keyboard.leftArrowKey;
-            case "arrowright": return keyboard.rightArrowKey;
-            default: return null;
+            case "space": return Key.Space;
+            case "enter": case "return": return Key.Enter;
+            case "escape": case "esc": return Key.Escape;
+            case "tab": return Key.Tab;
+            case "backspace": return Key.Backspace;
+            case "delete": return Key.Delete;
+            case "leftshift": case "shift": return Key.LeftShift;
+            case "rightshift": return Key.RightShift;
+            case "leftctrl": case "ctrl": return Key.LeftCtrl;
+            case "rightctrl": return Key.RightCtrl;
+            case "leftalt": case "alt": return Key.LeftAlt;
+            case "rightalt": return Key.RightAlt;
+            case "arrowup": case "up": return Key.UpArrow;
+            case "arrowdown": case "down": return Key.DownArrow;
+            case "arrowleft": case "left": return Key.LeftArrow;
+            case "arrowright": case "right": return Key.RightArrow;
+            case "home": return Key.Home;
+            case "end": return Key.End;
+            case "pageup": return Key.PageUp;
+            case "pagedown": return Key.PageDown;
+            case "insert": return Key.Insert;
+            case "f1": return Key.F1;
+            case "f2": return Key.F2;
+            case "f3": return Key.F3;
+            case "f4": return Key.F4;
+            case "f5": return Key.F5;
+            case "f6": return Key.F6;
+            case "f7": return Key.F7;
+            case "f8": return Key.F8;
+            case "f9": return Key.F9;
+            case "f10": return Key.F10;
+            case "f11": return Key.F11;
+            case "f12": return Key.F12;
+            default: return Key.None;
         }
     }
 
-    // 辅助方法：从字符获取按键
-    private static KeyControl GetKeyControlFromChar(char c)
+    private static Key CharToKey(char c)
     {
-        var keyboard = Keyboard.current;
-        
         if (c >= 'a' && c <= 'z')
-            return keyboard[(Key)((int)Key.A + (c - 'a'))];
+            return (Key)Enum.Parse(typeof(Key), c.ToString().ToUpper());
         if (c >= 'A' && c <= 'Z')
-            return keyboard[(Key)((int)Key.A + (c - 'A'))];
+            return (Key)Enum.Parse(typeof(Key), c.ToString());
         if (c >= '0' && c <= '9')
-            return keyboard[(Key)((int)Key.Digit0 + (c - '0'))];
+            return (Key)Enum.Parse(typeof(Key), "Digit" + c);
         if (c == ' ')
-            return keyboard.spaceKey;
-        
-        return null;
+            return Key.Space;
+        return Key.None;
     }
 }
 ```
 
 ---
 
-## Tool 4: 输入录制与回放
-<!-- 录制和回放输入序列 -->
+## Tool 5: 输入录制与回放
 
 ```csharp
 // Assets/Scripts/MCP/Tool_InputRecording.cs
@@ -553,30 +1171,33 @@ using Io.Kmmurzak.Unity.Mcp.Plugin;
 [McpPluginToolType]
 public static class Tool_InputRecording
 {
-    // 录制数据存储
     private static List<InputEvent> recordedEvents = new List<InputEvent>();
     private static bool isRecording = false;
     private static float recordStartTime = 0f;
 
-    /// <summary>
-    /// 输入事件结构
-    /// </summary>
+    [System.Serializable]
     private struct InputEvent
     {
-        public float time;          // 相对于录制开始的时间
-        public string type;         // "click", "key", "move"
-        public int x, y;            // 鼠标位置
-        public string key;          // 按键名称
-        public bool isDown;         // 是否按下（vs释放）
+        public float time;
+        public string type;     // "click", "key", "move", "scroll"
+        public int x, y;
+        public string key;
+        public bool isDown;
+        public float scrollY;
+        public int button;
     }
 
-    /// <summary>
-    /// 开始录制输入
-    /// Start recording input
-    /// </summary>
-    [McpPluginTool("record-start", Title = "Start recording input")]
-    [Description("Start recording all mouse and keyboard inputs. " +
-                 "开始录制所有鼠标和键盘输入。")]
+    [System.Serializable]
+    private class RecordingData
+    {
+        public InputEvent[] events;
+        public int totalFrames;
+        public float durationSeconds;
+    }
+
+    [McpPluginTool("record-start", Title = "Start recording")]
+    [Description("Start recording input events. " +
+                 "开始录制输入事件。")]
     public static string StartRecording()
     {
         return MainThread.Instance.Run(() =>
@@ -584,41 +1205,26 @@ public static class Tool_InputRecording
             recordedEvents.Clear();
             isRecording = true;
             recordStartTime = Time.time;
-
-            // 注册输入回调
-            if (Mouse.current != null)
-            {
-                // 鼠标位置变化
-                // 注意：Input System 需要通过 polling 或事件监听
-            }
-
-            return "[Success] Recording started. Use 'record-stop' to stop and 'replay-input' to replay.";
+            return "[Success] Recording started. Use 'record-stop' to stop.";
         });
     }
 
-    /// <summary>
-    /// 停止录制输入
-    /// Stop recording input
-    /// </summary>
-    [McpPluginTool("record-stop", Title = "Stop recording input")]
-    [Description("Stop recording and return recorded event count. " +
-                 "停止录制并返回录制的事件数量。")]
+    [McpPluginTool("record-stop", Title = "Stop recording")]
+    [Description("Stop recording and return event count. " +
+                 "停止录制并返回事件数量。")]
     public static string StopRecording()
     {
         return MainThread.Instance.Run(() =>
         {
             isRecording = false;
-            return $"[Success] Recording stopped. Recorded {recordedEvents.Count} events.";
+            float duration = Time.time - recordStartTime;
+            return $"[Success] Recording stopped. {recordedEvents.Count} events, {duration:F2}s.";
         });
     }
 
-    /// <summary>
-    /// 获取录制摘要
-    /// Get recording summary
-    /// </summary>
-    [McpPluginTool("record-summary", Title = "Get recording summary")]
+    [McpPluginTool("record-summary", Title = "Recording summary")]
     [Description("Get summary of recorded events. " +
-                 "获取录制事件的摘要。")]
+                 "获取录制事件摘要。")]
     public static string GetRecordSummary()
     {
         return MainThread.Instance.Run(() =>
@@ -630,108 +1236,24 @@ public static class Tool_InputRecording
             sb.AppendLine($"Total events: {recordedEvents.Count}");
             sb.AppendLine($"Duration: {recordedEvents[recordedEvents.Count - 1].time:F2}s");
             
-            // 统计事件类型
-            int clicks = 0, keys = 0, moves = 0;
+            int clicks = 0, keys = 0, moves = 0, scrolls = 0;
             foreach (var e in recordedEvents)
             {
                 if (e.type == "click") clicks++;
                 else if (e.type == "key") keys++;
                 else if (e.type == "move") moves++;
+                else if (e.type == "scroll") scrolls++;
             }
             
-            sb.AppendLine($"Clicks: {clicks}, Keys: {keys}, Moves: {moves}");
-            
-            // 列出关键事件
-            sb.AppendLine("\nKey events:");
-            foreach (var e in recordedEvents)
-            {
-                if (e.type == "click")
-                    sb.AppendLine($"  [{e.time:F2}s] Click ({e.x}, {e.y})");
-                else if (e.type == "key")
-                    sb.AppendLine($"  [{e.time:F2}s] Key {e.key} {(e.isDown ? "down" : "up")}");
-            }
-
+            sb.AppendLine($"Clicks: {clicks}, Keys: {keys}, Moves: {moves}, Scrolls: {scrolls}");
             return sb.ToString();
         });
     }
 
-    /// <summary>
-    /// 回放录制的输入
-    /// Replay recorded input
-    /// </summary>
-    [McpPluginTool("replay-input", Title = "Replay recorded input")]
-    [Description("Replay all recorded input events with original timing. " +
-                 "按原始时间回放所有录制的输入事件。")]
-    public static string ReplayInput
-    (
-        [Description("Speed multiplier (1=normal, 2=fast, 0.5=slow). 速度倍率")]
-        float speed = 1f
-    )
-    {
-        return MainThread.Instance.Run(() =>
-        {
-            if (recordedEvents.Count == 0)
-                return "[Error] No events to replay. Record first with 'record-start'.";
-
-            if (isRecording)
-                return "[Error] Still recording. Stop with 'record-stop' first.";
-
-            float replayStartTime = Time.time;
-            int replayedCount = 0;
-
-            foreach (var event_ in recordedEvents)
-            {
-                // 计算等待时间
-                float targetTime = replayStartTime + (event_.time / speed);
-                float waitTime = targetTime - Time.time;
-                
-                if (waitTime > 0)
-                    System.Threading.Thread.Sleep((int)(waitTime * 1000));
-
-                // 执行事件
-                if (event_.type == "click")
-                {
-                    Mouse.current.position.value = new Vector2(event_.x, event_.y);
-                    if (event_.isDown)
-                        Mouse.current.leftButton.press();
-                    else
-                        Mouse.current.leftButton.release();
-                }
-                else if (event_.type == "key")
-                {
-                    // 需要按键查找逻辑
-                    // SimulateKeyPress(event_.key);
-                }
-                else if (event_.type == "move")
-                {
-                    Mouse.current.position.value = new Vector2(event_.x, event_.y);
-                }
-
-                replayedCount++;
-            }
-
-            return $"[Success] Replayed {replayedCount} events at {speed}x speed.";
-        });
-    }
-
-    /// <summary>
-    /// 手动添加点击事件（用于手动录制）
-    /// Manually add click event
-    /// </summary>
-    [McpPluginTool("record-add-click", Title = "Add click to recording")]
-    [Description("Manually add a click event to current recording. " +
-                 "手动添加点击事件到当前录制中。")]
-    public static string RecordAddClick
-    (
-        [Description("Screen X. 屏幕 X")]
-        int x,
-        
-        [Description("Screen Y. 屏幕 Y")]
-        int y,
-        
-        [Description("Is button down (true) or up (false). 是否按下")]
-        bool isDown = true
-    )
+    [McpPluginTool("record-add-click", Title = "Add click event")]
+    [Description("Add click event to recording. " +
+                 "添加点击事件到录制中。")]
+    public static string RecordAddClick(int x, int y, bool isDown = true, int button = 0)
     {
         return MainThread.Instance.Run(() =>
         {
@@ -744,33 +1266,23 @@ public static class Tool_InputRecording
                 type = "click",
                 x = x,
                 y = y,
-                isDown = isDown
+                isDown = isDown,
+                button = button
             });
 
-            return $"[Success] Added click ({x}, {y}) at time {Time.time - recordStartTime:F2}s";
+            return $"[Success] Added click ({x}, {y}) at {Time.time - recordStartTime:F2}s";
         });
     }
 
-    /// <summary>
-    /// 手动添加按键事件（用于手动录制）
-    /// Manually add key event
-    /// </summary>
-    [McpPluginTool("record-add-key", Title = "Add key to recording")]
-    [Description("Manually add a key event to current recording. " +
-                 "手动添加按键事件到当前录制中。")]
-    public static string RecordAddKey
-    (
-        [Description("Key name. 按键名称")]
-        string key,
-        
-        [Description("Is key down (true) or up (false). 是否按下")]
-        bool isDown = true
-    )
+    [McpPluginTool("record-add-key", Title = "Add key event")]
+    [Description("Add key event to recording. " +
+                 "添加按键事件到录制中。")]
+    public static string RecordAddKey(string key, bool isDown = true)
     {
         return MainThread.Instance.Run(() =>
         {
             if (!isRecording)
-                return "[Error] Not recording. Start with 'record-start'.";
+                return "[Error] Not recording.";
 
             recordedEvents.Add(new InputEvent
             {
@@ -780,33 +1292,68 @@ public static class Tool_InputRecording
                 isDown = isDown
             });
 
-            return $"[Success] Added key '{key}' at time {Time.time - recordStartTime:F2}s";
+            return $"[Success] Added key '{key}' at {Time.time - recordStartTime:F2}s";
         });
     }
 
-    /// <summary>
-    /// 清除录制数据
-    /// Clear recording data
-    /// </summary>
-    [McpPluginTool("record-clear", Title = "Clear recording")]
-    [Description("Clear all recorded input events. " +
-                 "清除所有录制的输入事件。")]
-    public static string ClearRecording()
+    [McpPluginTool("replay-input", Title = "Replay recorded input")]
+    [Description("Replay all recorded events. " +
+                 "回放所有录制事件。")]
+    public static string ReplayInput(float speed = 1f)
     {
         return MainThread.Instance.Run(() =>
         {
-            recordedEvents.Clear();
-            return "[Success] Recording cleared.";
+            if (recordedEvents.Count == 0)
+                return "[Error] No events to replay.";
+
+            if (isRecording)
+                return "[Error] Still recording. Stop first.";
+
+            float replayStart = Time.time;
+            int count = 0;
+
+            foreach (var e in recordedEvents)
+            {
+                float targetTime = replayStart + (e.time / speed);
+                float wait = targetTime - Time.time;
+                
+                if (wait > 0)
+                    System.Threading.Thread.Sleep((int)(wait * 1000));
+
+                if (e.type == "click")
+                {
+                    if (Mouse.current != null)
+                    {
+                        Mouse.current.position.value = new Vector2(e.x, e.y);
+                        var btn = e.button == 0 ? Mouse.current.leftButton
+                               : e.button == 1 ? Mouse.current.rightButton
+                               : Mouse.current.middleButton;
+                        if (e.isDown) btn.press(); else btn.release();
+                    }
+                }
+                else if (e.type == "key")
+                {
+                    if (Keyboard.current != null)
+                    {
+                        // Key replay logic
+                    }
+                }
+                else if (e.type == "move")
+                {
+                    if (Mouse.current != null)
+                        Mouse.current.position.value = new Vector2(e.x, e.y);
+                }
+
+                count++;
+            }
+
+            return $"[Success] Replayed {count} events at {speed}x speed.";
         });
     }
 
-    /// <summary>
-    /// 导出录制数据为 JSON
-    /// Export recording as JSON
-    /// </summary>
-    [McpPluginTool("record-export", Title = "Export recording as JSON")]
-    [Description("Export recorded events as JSON string for saving. " +
-                 "导出录制事件为 JSON 字符串用于保存。")]
+    [McpPluginTool("record-export", Title = "Export recording")]
+    [Description("Export recording as JSON. " +
+                 "导出录制为 JSON。")]
     public static string ExportRecording()
     {
         return MainThread.Instance.Run(() =>
@@ -814,23 +1361,22 @@ public static class Tool_InputRecording
             if (recordedEvents.Count == 0)
                 return "[Info] No events to export.";
 
-            var json = UnityEngine.JsonUtility.ToJson(new RecordingData { events = recordedEvents.ToArray() });
-            return $"[Success] Exported {recordedEvents.Count} events.\nJSON: {json}";
+            var data = new RecordingData
+            {
+                events = recordedEvents.ToArray(),
+                totalFrames = recordedEvents.Count,
+                durationSeconds = recordedEvents[recordedEvents.Count - 1].time
+            };
+
+            var json = UnityEngine.JsonUtility.ToJson(data, true);
+            return $"[Success] Exported {recordedEvents.Count} events.\n{json}";
         });
     }
 
-    /// <summary>
-    /// 从 JSON 导入录制数据
-    /// Import recording from JSON
-    /// </summary>
-    [McpPluginTool("record-import", Title = "Import recording from JSON")]
-    [Description("Import recorded events from JSON string. " +
-                 "从 JSON 字符串导入录制事件。")]
-    public static string ImportRecording
-    (
-        [Description("JSON data. JSON 数据")]
-        string json
-    )
+    [McpPluginTool("record-import", Title = "Import recording")]
+    [Description("Import recording from JSON. " +
+                 "从 JSON 导入录制。")]
+    public static string ImportRecording(string json)
     {
         return MainThread.Instance.Run(() =>
         {
@@ -840,196 +1386,136 @@ public static class Tool_InputRecording
                 recordedEvents.Clear();
                 foreach (var e in data.events)
                     recordedEvents.Add(e);
-
                 return $"[Success] Imported {recordedEvents.Count} events.";
             }
             catch (System.Exception ex)
             {
-                return $"[Error] Failed to import: {ex.Message}";
+                return $"[Error] Import failed: {ex.Message}";
             }
         });
     }
 
-    [System.Serializable]
-    private class RecordingData
+    [McpPluginTool("record-clear", Title = "Clear recording")]
+    [Description("Clear all recorded events. " +
+                 "清除所有录制事件。")]
+    public static string ClearRecording()
     {
-        public InputEvent[] events;
+        return MainThread.Instance.Run(() =>
+        {
+            recordedEvents.Clear();
+            return "[Success] Recording cleared.";
+        });
     }
 }
 ```
 
 ---
 
-## Tool 5: 自动录制监听（可选）
-<!-- 自动监听并录制输入 -->
+## 推荐工作流程
 
-```csharp
-// Assets/Scripts/MCP/InputRecorder.cs
-// 这是一个 MonoBehaviour，用于自动监听输入并录制
-
-using UnityEngine;
-using UnityEngine.InputSystem;
-using System.Collections.Generic;
-
-public class InputRecorder : MonoBehaviour
-{
-    public static InputRecorder Instance { get; private set; }
-
-    private List<InputEvent> events = new List<InputEvent>();
-    private bool isRecording = false;
-    private float startTime;
-
-    private void Awake()
-    {
-        Instance = this;
-    }
-
-    public void StartRecording()
-    {
-        events.Clear();
-        isRecording = true;
-        startTime = Time.time;
-    }
-
-    public void StopRecording()
-    {
-        isRecording = false;
-    }
-
-    public List<InputEvent> GetEvents() => events;
-
-    private void Update()
-    {
-        if (!isRecording) return;
-
-        float currentTime = Time.time - startTime;
-
-        // 监听鼠标
-        if (Mouse.current != null)
-        {
-            var pos = Mouse.current.position.value;
-            
-            // 监听左键
-            if (Mouse.current.leftButton.wasPressedThisFrame)
-            {
-                events.Add(new InputEvent
-                {
-                    time = currentTime,
-                    type = "click",
-                    x = (int)pos.x,
-                    y = (int)pos.y,
-                    isDown = true
-                });
-            }
-            if (Mouse.current.leftButton.wasReleasedThisFrame)
-            {
-                events.Add(new InputEvent
-                {
-                    time = currentTime,
-                    type = "click",
-                    x = (int)pos.x,
-                    y = (int)pos.y,
-                    isDown = false
-                });
-            }
-        }
-
-        // 监听键盘（需要遍历所有按键）
-        if (Keyboard.current != null)
-        {
-            // 可以扩展监听更多按键
-        }
-    }
-
-    [System.Serializable]
-    public struct InputEvent
-    {
-        public float time;
-        public string type;
-        public int x, y;
-        public string key;
-        public bool isDown;
-    }
-}
-```
-
----
-
-## 使用示例
-
-### 示例 1：点击游戏世界中的对象
+### 1. UI 交互（推荐流程）
 
 ```
-# Unity-MCP Tool 调用
-simulate-click-world x=500 y=300
+# Step 1: 获取 UI 元素坐标（关键！）
+ui-find-interactive-elements format="summary"
+# 输出：A: StartButton (SimX=400, SimY=300), B: LevelItem_Draggable (SimX=200, SimY=150)...
 
-# 返回
-[Success] Clicked at (500, 300). Hit: Gem_Red_01
+# Step 2: 使用返回的坐标操作
+simulate-click-ui x=400 y=300
+# 或拖拽
+simulate-drag-ui startX=200 startY=150 endX=400 endY=150
 ```
 
-### 示例 2：点击 UI 按钮
+### 2. 复杂拖拽（分步操作）
 
 ```
-# 通过坐标
-simulate-click-ui x=200 y=150
-
-# 或通过名称
-click-button-by-name buttonName="RestartButton"
+# 使用分步 API 更稳定
+simulate-drag-ui-start x=200 y=150
+# 可以在这里截图检查状态
+screenshot-game-view
+simulate-drag-ui-move x=250 y=150
+simulate-drag-ui-end x=400 y=150
 ```
 
-### 示例 3：录制并回放输入序列
+### 3. 录制回放
 
 ```
-# 开始录制
 record-start
-
-# 手动添加事件（或在游戏中自动录制）
 record-add-click x=100 y=200 isDown=true
 record-add-click x=100 y=200 isDown=false
-record-add-click x=300 y=400 isDown=true
-record-add-click x=300 y=400 isDown=false
-
-# 停止录制
+record-add-key key="Space" isDown=true
+record-add-key key="Space" isDown=false
 record-stop
-
-# 查看摘要
-record-summary
-
-# 回放
+record-export  # 保存 JSON
 replay-input speed=1.0
 ```
 
 ---
 
-## 注意事项
+## 工具对比表
 
-1. **Input System 配置**
-   - 确保 Unity Input System 已启用
-   - 项目设置中勾选 "Active Input Handling" = "Input System Package (New or Both)"
-
-2. **EventSystem**
-   - UI 点击需要场景中有 EventSystem
-   - 如果没有，会返回错误提示
-
-3. **MainThread**
-   - 所有 Unity API 调用必须通过 `MainThread.Instance.Run()`
-   - 这是 Unity-MCP 的要求
-
-4. **时间精度**
-   - 回放的时间精度取决于 Unity 的帧率
-   - 高精度场景可能需要调整等待逻辑
+| 工具 | 用途 | 坐标来源 |
+|------|------|----------|
+| `ui-find-interactive-elements` | **首选**：获取所有可交互元素坐标 | 自动计算 |
+| `ui-find-element-by-name` | 查找特定元素坐标 | 按名称 |
+| `simulate-click-ui` | 点击 UI 按钮/开关 | 用 ui-find 的 SimX/SimY |
+| `simulate-drag-ui-start/move/end` | **分步拖拽（稳定）** | 用 ui-find 的坐标 |
+| `simulate-drag-ui` | 一体化拖拽 | 起点 + 终点 |
+| `simulate-long-press-ui` | 长按 UI | 用 ui-find 的坐标 |
+| `simulate-click-world` | 点击游戏世界对象 | 估算或 raycast |
+| `simulate-drag-world` | 世界空间拖拽（三消） | 起点 + 终点 |
+| `simulate-key-press/down/up` | 键盘操作 | 按键名称 |
 
 ---
 
-## 文件结构建议
+## 文件结构
 
 ```
 Assets/Scripts/MCP/
-├── Tool_MouseInput.cs       # 世界空间鼠标输入
-├── Tool_MouseUI.cs          # UI 空间鼠标输入
-├── Tool_KeyboardInput.cs    # 键盘输入
-├── Tool_InputRecording.cs   # 录制与回放
-└── InputRecorder.cs         # 自动录制监听器（可选 MonoBehaviour）
+├── Tool_UIElementFinder.cs    # UI 元素定位（新增！关键）
+├── Tool_MouseUI.cs            # UI 鼠标操作（增强版）
+├── Tool_MouseInput.cs         # 世界空间鼠标
+├── Tool_KeyboardInput.cs      # 键盘
+└── Tool_InputRecording.cs     # 录制回放
 ```
 
-将这些文件放入项目后，Unity-MCP 会自动识别并注册这些 Tool，LLM 即可通过 MCP 调用它们。
+---
+
+## 常见问题解决
+
+### 问题：Drag 经常报"找不到 draggable"
+
+**原因**：坐标不准确，没有点在可拖拽元素上
+
+**解决**：
+```
+# 先用 ui-find-interactive-elements 获取准确坐标
+ui-find-interactive-elements
+# 查找 IsDraggable=true 的元素，使用其 SimX/SimY
+simulate-drag-ui-start x=<SimX> y=<SimY>
+```
+
+### 问题：拖拽不稳定、时好时坏
+
+**解决**：使用分步 API
+```
+# 一体化 drag 可能太快
+simulate-drag-ui startX=... startY=... endX=... endY=... duration=0.3
+
+# 改用分步 API，可在中间检查状态
+simulate-drag-ui-start x=... y=...
+wait-until-condition condition="..."  # 等待状态
+simulate-drag-ui-move x=... y=...
+simulate-drag-ui-end x=... y=...
+```
+
+### 问题：找不到某个按钮
+
+**解决**：
+```
+ui-find-interactive-elements format="summary"
+# 检查输出列表，确认按钮名称和坐标
+
+# 或直接按名称查找
+ui-find-element-by-name name="SettingsButton"
+```
