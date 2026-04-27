@@ -192,17 +192,18 @@ See [references/json-output-schema.md](references/json-output-schema.md) for JSO
 | [SETUP.md](SETUP.md) | Complete setup guide |
 | [EXAMPLES.md](EXAMPLES.md) | Validation examples (v2.0 enhanced) |
 | [CHANGELOG.md](CHANGELOG.md) | Version history |
-| [validation-config.example.yaml](validation-config.example.yaml) | Config template (v2.0) |
+| [validation-config.example.yaml](validation-config.example.yaml) | Config template (v2.2) |
 | [references/route-matrix.md](references/route-matrix.md) | Change classification → validation route |
 | [references/output-contract.md](references/output-contract.md) | Markdown report format |
 | [references/json-output-schema.md](references/json-output-schema.md) | JSON report schema (v2.0) |
 | [references/runtime-probes.md](references/runtime-probes.md) | Runtime bug probe ladder |
 | [references/tool-reference.md](references/tool-reference.md) | Unity-MCP tool reference |
 | [references/troubleshooting.md](references/troubleshooting.md) | Troubleshooting guide |
-| [references/custom-tools-input.md](references/custom-tools-input.md) | Input simulation tool code |
+| [references/custom-tools-input.md](references/custom-tools-input.md) | Input simulation tool code (v2.2) |
 | [references/custom-tools-wait.md](references/custom-tools-wait.md) | Wait tool code (v2.0) |
-| [references/ui-snapshot-tool.md](references/ui-snapshot-tool.md) | UI snapshot tool code (v2.0) |
+| [references/ui-snapshot-tool.md](references/ui-snapshot-tool.md) | UI snapshot & annotate tool code (v2.2) |
 | [references/state-reset.md](references/state-reset.md) | State reset tool code (v2.0) |
+| [references/custom-tools-screenshot-vl.md](references/custom-tools-screenshot-vl.md) | **Screenshot + VL analysis tool (v2.2 NEW)** |
 | [references/test-backdoors.md](references/test-backdoors.md) | Test backdoor API guide (v2.0) |
 
 ## Troubleshooting

@@ -7,23 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.2.0] - 2026-04-27
 
-### Added — v2.2: Integrated Workflow（一体化体验，比 CLI 更方便）
+### Added — v2.2: Integrated Workflow + VL Screenshot Analysis
 
-**MCP 相比 CLI 的优势：**
+**Screenshot + VL Analysis (NEW):**
+
+集成 Ollama VL 模型进行截图识别：
+- `screenshot-analyze-vl` — 截图 + 自定义 prompt 分析
+- `ui-check-vl` — 快速检查 UI 元素可见性/状态
+- `game-state-vl` — 检查游戏状态（分数、阶段）
+- `screenshot-compare-vl` — 对比两张截图变化
+- `vl-config` — 配置 Ollama URL 和模型
+
+默认配置：
+- URL: `http://192.168.0.103:11434`
+- Model: `huihui_ai/qwen3-vl-abliterated:8b-instruct`
+
+**Integrated Workflow（一体化体验）：**
 
 | 操作 | CLI 流程 | MCP 流程 |
 |------|---------|---------|
-| 点击 UI | annotate → 手动输入坐标 | annotate → `simulate-click-by-label label="B"` |
-| 拖拽 UI | annotate → 手动输入起点终点 | annotate → `simulate-drag-by-label startLabel="A" endLabel="D"` |
-| 按名称操作 | ❌ 不支持 | ✅ `simulate-click-by-name name="StartButton"` |
+| 点击 UI | annotate → 手动输入坐标 | `simulate-click-by-label label="B"` |
+| 拖拽 UI | annotate → 手动输入起点终点 | `simulate-drag-by-label startLabel="A" endLabel="D"` |
+| 按名称操作 | ❌ 不支持 | `simulate-click-by-name name="StartButton"` |
 
 **新增工具：**
 
 - `ui-annotate-elements` — 类似 CLI 的 `screenshot --annotate-elements --elements-only`
-- `simulate-click-by-label` — 按 Label (A/B/C) 点击，无需手动输入坐标
-- `simulate-drag-by-label` — 按 Label 拖拽，自动查找坐标
-- `simulate-click-by-name` — 按 GameObject 名称直接点击
-- `simulate-drag-by-name` — 按 GameObject 名称直接拖拽
+- `simulate-click-by-label` — 按 Label (A/B/C) 点击
+- `simulate-drag-by-label` — 按 Label 拖拽
+- `simulate-click-by-name` — 按 GameObject 名称点击
+- `simulate-drag-by-name` — 按 GameObject 名称拖拽
 
 **推荐工作流程：**
 ```

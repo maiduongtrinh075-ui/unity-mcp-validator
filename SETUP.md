@@ -1,4 +1,4 @@
-# Setup Guide (v2.0)
+# Setup Guide (v2.2)
 
 Complete setup instructions for Unity-MCP Validator. Follow this guide to make the skill fully functional.
 
@@ -11,12 +11,13 @@ Complete these steps before using the validator:
 | 1. Install Unity-MCP plugin | ⬜ | `npm install -g unity-mcp-cli && unity-mcp-cli install-plugin ./YourProject` |
 | 2. Copy custom input tools | ⬜ | Copy code from `references/custom-tools-input.md` |
 | 3. **Add wait tools (v2.0)** | ⬜ | Copy code from `references/custom-tools-wait.md` |
-| 4. **Add UI snapshot tools (v2.0)** | ⬜ | Copy code from `references/ui-snapshot-tool.md` |
+| 4. **Add UI snapshot tools (v2.2)** | ⬜ | Copy code from `references/ui-snapshot-tool.md` |
 | 5. **Add state reset tool (v2.0)** | ⬜ | Copy code from `references/state-reset.md` |
-| 6. **Add test backdoor API (v2.0)** | ⬜ | See `references/test-backdoors.md` |
-| 7. Configure MCP server | ⬜ | Add to Claude Code MCP config |
-| 8. Test connection | ⬜ | Call `editor-application-get-state` |
-| 9. Create config file | ⬜ (optional) | Copy `validation-config.example.yaml` |
+| 6. **Add VL screenshot tool (v2.2)** | ⬜ (optional) | Copy code from `references/custom-tools-screenshot-vl.md` |
+| 7. **Add test backdoor API (v2.0)** | ⬜ (optional) | See `references/test-backdoors.md` |
+| 8. Configure MCP server | ⬜ | Add to Claude Code MCP config |
+| 9. Test connection | ⬜ | Call `editor-application-get-state` |
+| 10. Create config file | ⬜ (optional) | Copy `validation-config.example.yaml` |
 
 ---
 
@@ -218,7 +219,66 @@ state-reset strategy="auto"
 
 ---
 
-## Step 6: Add Test Backdoor API (v2.0 新增，可选)
+## Step 6: Add VL Screenshot Tool (v2.2 新增，可选)
+
+**集成 Ollama VL 模型进行截图识别：** 自动化视觉验证，判断 UI 状态、检测游戏画面。
+
+### Prerequisites
+
+1. **Ollama 服务**：确保 Ollama 运行并部署了 VL 模型
+2. **Newtonsoft.Json 包**：Unity 项目需要安装
+
+```
+Package Manager → Add package from git URL:
+com.unity.nuget.newtonsoft-json
+```
+
+### Copy Code
+
+Open `references/custom-tools-screenshot-vl.md` and copy the Tool code:
+
+| File | Purpose |
+|------|---------|
+| `Tool_ScreenshotVL.cs` | 截图 + VL 分析工具 |
+
+### Place in Project
+
+```
+YourUnityProject/Assets/Scripts/MCP/
+└── Tool_ScreenshotVL.cs
+```
+
+### Configure
+
+修改默认配置（或通过 MCP 工具配置）：
+
+```csharp
+// 默认配置（在代码中修改）
+private static string ollamaUrl = "http://192.168.0.103:11434";
+private static string ollamaModel = "huihui_ai/qwen3-vl-abliterated:8b-instruct";
+```
+
+或通过 MCP 工具动态配置：
+
+```bash
+vl-config url="http://192.168.0.103:11434" model="huihui_ai/qwen3-vl-abliterated:8b-instruct"
+```
+
+### Verify
+
+```bash
+# MCP 调用测试
+screenshot-analyze-vl prompt="Describe what you see"
+# 期望返回：VL 模型的描述
+
+# 快速 UI 检查
+ui-check-vl elementName="StartButton" checkType="visible"
+# 期望返回：YES 或 NO
+```
+
+---
+
+## Step 7: Add Test Backdoor API (v2.0 新增，可选)
 
 **极速构造边界测试场景：** 通过 reflection-method-call 调用后门方法。
 
